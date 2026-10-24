@@ -1,0 +1,4 @@
+* text=auto eol=lf
+# 上游依赖及许可文本保留原始字节，其许可首行空格不参与项目代码格式检查。
+native/vendor/** -text
+native/vendor/json-LICENSE.MIT -whitespace

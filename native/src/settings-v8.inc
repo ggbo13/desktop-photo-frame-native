@@ -1,0 +1,159 @@
+ // 旧三栏设置实现保留在 showLegacySettings，新界面独立接入。
+ bool newSettings=false;int settingsPage=0;float settingsDpi=1;HFONT settingsFont=nullptr,utilityFont=nullptr;
+ PhotoGrid photoGrid;std::vector<HWND> settingsControls;std::vector<BYTE> cardPixels[5];std::string cardColor;
+ std::vector<fs::path> pendingDragPaths;fs::path pendingDragTarget;double lastSliderPreview=0;
+ int px(float v)const{return std::lround(v*settingsDpi);}
+ HWND ui(const wchar_t* type,const wchar_t* text,int id,DWORD style=0){HWND h=createControl(type,text,id,0,0,100,30,style|WS_CLIPSIBLINGS);settingsControls.push_back(h);return h;}
+ void uiLabel(int id,const wchar_t* text){auto h=ui(L"STATIC",text,id,SS_LEFT);SetWindowLongPtrW(h,GWL_STYLE,GetWindowLongPtrW(h,GWL_STYLE)&~WS_TABSTOP);}
+ void uiCombo(int id,std::initializer_list<const wchar_t*> values){auto h=ui(L"COMBOBOX",L"",id,CBS_DROPDOWNLIST|WS_VSCROLL);for(auto value:values)SendMessageW(h,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(value));}
+ void fontsV8(float testScale=0){
+  HFONT previous=settingsFont,oldUtility=utilityFont;settingsDpi=testScale>0?testScale:GetDpiForWindow(settings)/96.f;
+  settingsFont=CreateFontW(-px(15),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Microsoft YaHei UI");
+  utilityFont=CreateFontW(-px(13),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Segoe UI");
+  for(auto h:settingsControls)SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(settingsFont),TRUE);photoGrid.font=settingsFont;photoGrid.dpi=settingsDpi;
+  for(int id:{IntervalEdit,ThicknessEdit,RadiusEdit,ShadowEdit,MaxWidthEdit,MaxHeightEdit,SnapMarginEdit})SendMessageW(control(id),WM_SETFONT,reinterpret_cast<WPARAM>(utilityFont),TRUE);
+  if(previous)DeleteObject(previous);if(oldUtility)DeleteObject(oldUtility);
+ }
+ void showSettings(){
+  if(settings){ShowWindow(settings,SW_RESTORE);SetForegroundWindow(settings);return;}
+  newSettings=true;settingsPage=0;settingsScrollY=0;listManagerExpanded=false;sourcesExpanded=false;settingsControls.clear();photoGrid.selected.clear();photoGrid.focus=-1;photoGrid.scroll=0;
+  auto saved=objectValue(store.state,"settingsBounds");RECT work=frame.workArea(frame.bounds);float initialDpi=GetDpiForWindow(frame.hwnd)/96.f;int w=int(numberValue(saved,"width",1040*initialDpi)),h=int(numberValue(saved,"height",720*initialDpi));
+  RECT wanted{LONG(numberValue(saved,"x",work.left+40)),LONG(numberValue(saved,"y",work.top+40)),0,0};wanted.right=wanted.left+w;wanted.bottom=wanted.top+h;MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromRect(&wanted,MONITOR_DEFAULTTONEAREST),&monitor);work=monitor.rcWork;
+  w=std::clamp(w,std::min(640,int(work.right-work.left)),int(work.right-work.left));h=std::clamp(h,std::min(480,int(work.bottom-work.top)),int(work.bottom-work.top));
+  int x=std::clamp(int(wanted.left),int(work.left),int(work.right)-w),y=std::clamp(int(wanted.top),int(work.top),int(work.bottom)-h);
+  settings=CreateWindowExW(0,L"NativePhotoFrameSettings",L"桌面相框 " PHOTO_FRAME_VERSION_W L" · 照片与设置",WS_OVERLAPPEDWINDOW|WS_VSCROLL,x,y,w,h,nullptr,nullptr,module,nullptr);
+  uiLabel(600,L"播放列表");ui(L"LISTBOX",L"",PlaylistBox,LBS_NOTIFY|WS_VSCROLL);uiCombo(PlaylistCompact,{});ui(L"EDIT",L"",NameEdit,ES_AUTOHSCROLL);
+  ui(L"BUTTON",L"新建",NewList);ui(L"BUTTON",L"改名",RenameList);ui(L"BUTTON",L"删除列表…",DeleteList);ui(L"BUTTON",L"管理列表",ManageLists);ui(L"BUTTON",L"管理来源",ManageSources);uiLabel(620,L"相框样式");
+  const wchar_t* tabs[]={L"照片",L"外观",L"播放",L"应用"};for(int i=0;i<4;++i)ui(L"BUTTON",tabs[i],PagePhotos+i,BS_OWNERDRAW);
+  uiLabel(601,L"照片与来源");ui(L"BUTTON",L"添加照片…",AddFiles);ui(L"BUTTON",L"添加文件夹…",AddFolder);ui(L"BUTTON",L"移除来源…",RemoveSource);ui(L"LISTBOX",L"",SourceBox,LBS_NOTIFY|WS_VSCROLL|WS_HSCROLL);
+  ui(L"EDIT",L"",SearchEdit,ES_AUTOHSCROLL);SendMessageW(control(SearchEdit),EM_SETCUEBANNER,TRUE,reinterpret_cast<LPARAM>(L"搜索文件名"));ui(L"BUTTON",L"已排除",ExcludedCheck,BS_AUTOCHECKBOX);
+  ui(L"BUTTON",L"网格",ViewGrid,BS_OWNERDRAW);ui(L"BUTTON",L"列表",ViewList,BS_OWNERDRAW);
+  photoGrid.create(settings,module,PhotoBox,font,thumbnails);settingsControls.push_back(photoGrid.hwnd);
+  photoGrid.play=[this](int i){if(i>=0&&i<int(displayedPhotos.size())&&!photoGrid.excluded){photoGrid.focus=i;PostMessageW(settings,WM_COMMAND,ShowPhoto,0);}};
+  photoGrid.changed=[this]{updateSelectionV8();};photoGrid.reorder=[this](const std::vector<fs::path>& paths,const fs::path& target){pendingDragPaths=paths;pendingDragTarget=target;PostMessageW(settings,WM_APP+72,0,0);};
+  photoGrid.moveSelection=[this](int direction){PostMessageW(settings,WM_COMMAND,direction<0?MoveUp:MoveDown,0);};
+  for(auto [id,text]:std::initializer_list<std::pair<int,const wchar_t*>>{{MoveUp,L"前移"},{MoveDown,L"后移"},{ExcludePhoto,L"排除轮播…"},{ShowPhoto,L"播放选中"}})ui(L"BUTTON",text,id);
+  uiLabel(200,L"");uiLabel(602,L"当前照片 · 相框预览");ui(L"STATIC",L"",FramePreview,SS_OWNERDRAW);
+  const wchar_t* names[]={L"极简",L"木质",L"金属",L"拍立得",L"无边框"};for(int i=0;i<5;++i)ui(L"BUTTON",names[i],FrameCard+i,BS_OWNERDRAW);
+  uiCombo(FrameCombo,{L"极简",L"木质",L"金属",L"拍立得",L"无边框"});uiCombo(AnchorCombo,{L"左上角",L"右上角",L"左下角",L"右下角"});
+  uiLabel(603,L"照片区域比例");uiCombo(RatioCombo,{L"自由",L"自适应照片",L"1:1",L"4:3",L"3:2",L"16:9",L"9:16"});uiLabel(604,L"自适应固定角");
+  const wchar_t* corners[]={L"↖ 左上",L"右上 ↗",L"↙ 左下",L"右下 ↘"};for(int i=0;i<4;++i)ui(L"BUTTON",corners[i],AnchorButton+i,BS_OWNERDRAW);
+  for(auto [labelId,text,slider,edit,min,max]:std::initializer_list<std::tuple<int,const wchar_t*,int,int,int,int>>{{605,L"边框厚度",ThicknessSlider,ThicknessEdit,6,64},{606,L"圆角",RadiusSlider,RadiusEdit,0,32},{607,L"内沿阴影 (%)",ShadowSlider,ShadowEdit,0,100}}){uiLabel(labelId,text);ui(TRACKBAR_CLASSW,L"",slider,TBS_HORZ|TBS_NOTICKS);SendMessage(control(slider),TBM_SETRANGE,TRUE,MAKELPARAM(min,max));ui(L"EDIT",L"",edit,ES_NUMBER);}
+  ui(L"BUTTON",L"极简相框颜色…",PickColor);ui(L"BUTTON",L"恢复默认外观",ResetAppearance);
+  ui(L"BUTTON",L"限制自适应尺寸（含边框）",LimitCheck,BS_AUTOCHECKBOX);uiLabel(608,L"最大宽度 (px)");uiLabel(609,L"最大高度 (px)");ui(L"EDIT",L"640",MaxWidthEdit,ES_NUMBER);ui(L"EDIT",L"640",MaxHeightEdit,ES_NUMBER);ui(L"BUTTON",L"使用当前尺寸",UseCurrentSize);
+  uiLabel(610,L"切换效果");uiCombo(EffectCombo,{L"淡入淡出",L"水平滑动",L"轻微缩放",L"无动画"});uiLabel(611,L"播放顺序");uiCombo(OrderCombo,{L"按顺序播放",L"随机播放"});uiLabel(612,L"每张停留时间（秒）");ui(L"EDIT",L"10",IntervalEdit,ES_NUMBER);
+  uiLabel(613,L"横竖照片切换时，相框按尺寸变化自动调整过渡时长。");ui(L"BUTTON",L"暂停 / 继续播放",Pause);
+  uiLabel(614,L"窗口与启动");ui(L"BUTTON",L"相框置顶",TopCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"锁定位置（仍可缩放）",LockCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"Windows 登录后自动启动",StartupCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"拖动后吸附屏幕边缘",SnapCheck,BS_AUTOCHECKBOX);uiLabel(615,L"距边缘（像素）");ui(L"EDIT",L"12",SnapMarginEdit,ES_NUMBER);
+  uiLabel(616,L"自动节能");ui(L"BUTTON",L"同屏程序全屏时隐藏并暂停",FullscreenCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"使用电池时关闭动画，继续轮播",BatteryCheck,BS_AUTOCHECKBOX);uiLabel(617,L"锁屏和休眠期间暂停。恢复后继续，保留手动暂停与隐藏状态。");
+  uiLabel(618,L"原生版 " PHOTO_FRAME_VERSION_W);ui(L"BUTTON",L"应用设置",SaveOptions);uiLabel(699,L"");
+  fontsV8();refreshV8();layoutV8();ShowWindow(settings,SW_SHOW);ShowWindow(settings,SW_SHOW);SetForegroundWindow(settings);
+ }
+ #include "settings-layout-v9.inc"
+ // 保留 preview.8 的整页滚动布局，便于回溯。
+ void layoutV8Legacy(){
+  if(!settings||!newSettings||settingsControls.empty())return;RECT r{};GetClientRect(settings,&r);float width=r.right/settingsDpi,height=r.bottom/settingsDpi;bool wide=width>=820;float x=wide?226:20,cw=std::max(280.f,width-x-20),pageTop=wide?82:164;
+  HWND focused=GetFocus();bool wasRefreshing=refreshing;refreshing=true;for(auto h:settingsControls)ShowWindow(h,SW_HIDE);
+  auto place=[&](int id,float a,float b,float w,float h,bool page=false){HWND child=control(id);if(!child)return;if(page)b-=settingsScrollY/settingsDpi;SetWindowPos(child,nullptr,px(a),px(b),px(w),px(h),SWP_NOZORDER|SWP_NOACTIVATE);if(page){int top=std::max(0,px(pageTop-b)),bottom=std::min(px(h),px(height-b));if(bottom<=top)return;auto clip=CreateRectRgn(0,top,px(w),bottom);if(!SetWindowRgn(child,clip,FALSE))DeleteObject(clip);}else SetWindowRgn(child,nullptr,FALSE);ShowWindow(child,SW_SHOWNA);};
+  place(600,20,18,180,24);
+  if(wide){place(PlaylistBox,20,52,184,std::max(120.f,height-236));place(NameEdit,20,height-166,184,30);place(NewList,20,height-126,86,30);place(RenameList,116,height-126,88,30);place(DeleteList,20,height-84,184,30);}
+  else{place(PlaylistCompact,126,14,width-146,230);place(NameEdit,20,55,width-40,30);place(NewList,20,94,88,30);place(RenameList,118,94,88,30);place(DeleteList,216,94,140,30);}
+  float tabY=wide?20:126;for(int i=0;i<4;++i)place(PagePhotos+i,x+i*cw/4,tabY,cw/4-6,34);
+  float y=pageTop+8;auto p=[&](int id,float a,float b,float w,float h){place(id,a,b,w,h,true);};float bottom=y;
+  if(settingsPage==0){
+   p(601,x,y,cw,24);y+=34;float bw=std::min(146.f,(cw-16)/3);p(AddFiles,x,y,bw,32);p(AddFolder,x+bw+8,y,bw,32);p(RemoveSource,x+2*(bw+8),y,bw,32);y+=42;p(SourceBox,x,y,cw,74);y+=86;
+   p(SearchEdit,x,y,std::max(120.f,cw-240),30);p(ExcludedCheck,x+cw-230,y,100,30);p(ViewGrid,x+cw-126,y,58,30);p(ViewList,x+cw-62,y,62,30);y+=42;
+   float gridHeight=std::max(220.f,height-y-112);p(PhotoBox,x,y,cw,gridHeight);y+=gridHeight+12;float btn=(cw-24)/4;for(int i=0;i<4;++i){int ids[]={MoveUp,MoveDown,ExcludePhoto,ShowPhoto};p(ids[i],x+i*(btn+8),y,btn,32);}y+=42;p(200,x,y,cw,48);bottom=y+58;
+  }else if(settingsPage==1){
+   p(602,x,y,cw,24);y+=28;p(FramePreview,x,y,cw,150);y+=162;int cols=cw>=730?5:(cw>=470?3:2);float cardW=(cw-(cols-1)*10)/cols;
+   for(int i=0;i<5;++i)p(FrameCard+i,x+(i%cols)*(cardW+10),y+(i/cols)*146,cardW,136);y+=((5+cols-1)/cols)*146+8;
+   p(603,x,y,cw,24);y+=28;p(RatioCombo,x,y,cw,230);y+=42;p(604,x,y,cw,24);y+=30;float aw=std::min(180.f,(cw-12)/2);for(int i=0;i<4;++i)p(AnchorButton+i,x+i%2*(aw+12),y+i/2*40,aw,32);y+=92;
+   for(int i=0;i<3;++i){int labels[]={605,606,607},sliders[]={ThicknessSlider,RadiusSlider,ShadowSlider},edits[]={ThicknessEdit,RadiusEdit,ShadowEdit};p(labels[i],x,y,128,30);p(sliders[i],x+132,y,std::max(60.f,cw-216),30);p(edits[i],x+cw-74,y,74,30);y+=46;}
+   p(PickColor,x,y,std::min(190.f,(cw-12)/2),32);p(ResetAppearance,x+std::min(190.f,(cw-12)/2)+12,y,std::min(180.f,(cw-12)/2),32);y+=50;p(LimitCheck,x,y,cw,32);y+=40;
+   float field=(cw-16)/2;p(608,x,y,field,24);p(609,x+field+16,y,field,24);y+=28;p(MaxWidthEdit,x,y,field,30);p(MaxHeightEdit,x+field+16,y,field,30);y+=42;p(UseCurrentSize,x,y,190,32);bottom=y+48;
+  }else if(settingsPage==2){
+   for(auto [labelId,controlId,h]:std::initializer_list<std::tuple<int,int,int>>{{610,EffectCombo,230},{611,OrderCombo,230},{612,IntervalEdit,32}}){p(labelId,x,y,cw,24);y+=30;p(controlId,x,y,std::min(380.f,cw),h);y+=52;}p(613,x,y,cw,52);y+=64;p(Pause,x,y,190,34);bottom=y+54;
+  }else{
+   p(614,x,y,cw,28);y+=38;for(int id:{TopCheck,LockCheck,StartupCheck,SnapCheck}){p(id,x,y,cw,30);y+=40;}p(615,x,y,170,30);p(SnapMarginEdit,x+180,y,90,30);y+=58;p(616,x,y,cw,28);y+=36;for(int id:{FullscreenCheck,BatteryCheck}){p(id,x,y,cw,32);y+=44;}p(617,x,y,cw,56);y+=66;p(618,x,y,cw,24);bottom=y+40;
+  }
+  // 固定页签有自己的不透明遮罩，截图和原生子控件重绘时都不会被滚动内容覆盖。
+  place(699,wide?x:0,0,wide?cw:width,pageTop);SetWindowPos(control(699),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+  for(int id:{600,PlaylistBox,PlaylistCompact,NameEdit,NewList,RenameList,DeleteList,PagePhotos,PageAppearance,PagePlayback,PageApplication})if(IsWindowVisible(control(id)))SetWindowPos(control(id),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+  SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS};info.nMax=px(std::max(0.f,bottom-pageTop))-1;info.nPage=px(std::max(1.f,height-pageTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1);int corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=settingsScrollY;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_HORZ,FALSE);photoGrid.viewport();InvalidateRect(settings,nullptr,FALSE);if(focused&&IsChild(settings,focused)&&IsWindowVisible(focused))SetFocus(focused);refreshing=wasRefreshing;if(again)layoutV8();
+ }
+ void scrollV8(int request,int wheel=0){SCROLLINFO info{sizeof(info),SIF_ALL};GetScrollInfo(settings,SB_VERT,&info);if(wheel)settingsScrollY-=wheel*px(64)/WHEEL_DELTA;else switch(request){case SB_LINEUP:settingsScrollY-=px(32);break;case SB_LINEDOWN:settingsScrollY+=px(32);break;case SB_PAGEUP:settingsScrollY-=info.nPage;break;case SB_PAGEDOWN:settingsScrollY+=info.nPage;break;case SB_THUMBTRACK:settingsScrollY=info.nTrackPos;break;}settingsScrollY=std::clamp(settingsScrollY,0,std::max(0,info.nMax-int(info.nPage)+1));layoutV8();}
+ void updateSelectionV8(){if(!newSettings)return;size_t count=photoGrid.selected.size();bool playable=!photoGrid.excluded;for(int id:{MoveUp,MoveDown})EnableWindow(control(id),playable&&count>0);EnableWindow(control(ExcludePhoto),count>0);EnableWindow(control(ShowPhoto),playable&&photoGrid.focus>=0);auto status=std::to_wstring(frame.paths.size())+L" 张可播放 · 已选 "+std::to_wstring(count)+L" 张";if(displayedPhotos.empty())status=photoGrid.excluded?L"没有已排除的照片。":L"添加照片或调整搜索条件。";if(!store.problems.empty())status+=L" · "+store.problems.front();SetWindowTextW(control(200),status.c_str());}
+ void updatePhotosV8(){
+  if(!newSettings||!photoGrid.hwnd)return;photoGrid.excluded=SendMessage(control(ExcludedCheck),BM_GETCHECK,0,0)==BST_CHECKED;auto query=controlText(control(SearchEdit));std::transform(query.begin(),query.end(),query.begin(),::towlower);
+  std::vector<fs::path> candidates=frame.paths;if(photoGrid.excluded){candidates.clear();for(auto& p:store.active()["excluded"])candidates.emplace_back(wide(p.get<std::string>()));}
+  displayedPhotos.clear();for(auto& p:candidates){auto name=p.filename().wstring();std::transform(name.begin(),name.end(),name.begin(),::towlower);if(query.empty()||name.find(query)!=std::wstring::npos)displayedPhotos.push_back(p);}
+  photoGrid.grid=stringValue(store.state["global"],"photoView","grid")=="grid";photoGrid.current=frame.hasPhoto&&frame.index<frame.paths.size()?frame.paths[frame.index]:fs::path{};photoGrid.setPaths(displayedPhotos);SetWindowTextW(control(ExcludePhoto),photoGrid.excluded?L"恢复轮播":L"排除轮播…");updateSelectionV8();
+ }
+ void refreshV8(){
+  if(!settings||settingsControls.empty())return;refreshing=true;SendMessage(control(PlaylistBox),LB_RESETCONTENT,0,0);SendMessage(control(PlaylistCompact),CB_RESETCONTENT,0,0);int chosen=0,i=0;
+  for(auto& p:store.state["playlists"]){auto name=wide(stringValue(p,"name"));SendMessageW(control(PlaylistBox),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));SendMessageW(control(PlaylistCompact),CB_ADDSTRING,0,reinterpret_cast<LPARAM>(name.c_str()));if(stringValue(p,"id")==stringValue(store.state,"activePlaylistId"))chosen=i;++i;}SendMessage(control(PlaylistBox),LB_SETCURSEL,chosen,0);SendMessage(control(PlaylistCompact),CB_SETCURSEL,chosen,0);SetWindowTextW(control(NameEdit),wide(stringValue(store.active(),"name")).c_str());SendMessage(control(SourceBox),LB_RESETCONTENT,0,0);for(auto& s:store.active()["sources"]){auto path=wide(stringValue(s,"path"));SendMessageW(control(SourceBox),LB_ADDSTRING,0,reinterpret_cast<LPARAM>(path.c_str()));}
+  auto& c=store.active()["config"];SendMessage(control(FrameCombo),CB_SETCURSEL,comboIndex(c,"frame",frames,5),0);SendMessage(control(AnchorCombo),CB_SETCURSEL,comboIndex(c,"anchor",anchors,4),0);SendMessage(control(RatioCombo),CB_SETCURSEL,comboIndex(c,"ratio",ratios,7),0);SendMessage(control(EffectCombo),CB_SETCURSEL,comboIndex(c,"transition",effects,4),0);SendMessage(control(OrderCombo),CB_SETCURSEL,comboIndex(c,"order",orders,2),0);
+  for(auto [id,key]:std::initializer_list<std::pair<int,const char*>>{{IntervalEdit,"interval"},{ThicknessEdit,"thickness"},{RadiusEdit,"radius"},{ShadowEdit,"shadow"},{MaxWidthEdit,"maxWidth"},{MaxHeightEdit,"maxHeight"}})SetWindowTextW(control(id),std::to_wstring(int(numberValue(c,key,0))).c_str());
+  for(auto [slider,edit]:std::initializer_list<std::pair<int,int>>{{ThicknessSlider,ThicknessEdit},{RadiusSlider,RadiusEdit},{ShadowSlider,ShadowEdit}})SendMessage(control(slider),TBM_SETPOS,TRUE,_wtoi(controlText(control(edit)).c_str()));
+  auto& g=store.state["global"];for(auto [id,key]:std::initializer_list<std::pair<int,const char*>>{{TopCheck,"alwaysOnTop"},{LockCheck,"lockPosition"},{StartupCheck,"autoStart"},{SnapCheck,"snap"},{FullscreenCheck,"pauseFullscreen"},{BatteryCheck,"batteryReduceMotion"}})SendMessage(control(id),BM_SETCHECK,boolValue(g,key)?BST_CHECKED:BST_UNCHECKED,0);SetWindowTextW(control(SnapMarginEdit),std::to_wstring(int(numberValue(g,"snapMargin",12))).c_str());SendMessage(control(LimitCheck),BM_SETCHECK,boolValue(c,"limitAutoSize")?BST_CHECKED:BST_UNCHECKED,0);
+  bool autoSize=stringValue(c,"ratio")=="auto";for(int id:{LimitCheck,UseCurrentSize})EnableWindow(control(id),autoSize);for(int id:{MaxWidthEdit,MaxHeightEdit})EnableWindow(control(id),autoSize&&boolValue(c,"limitAutoSize"));for(int n=0;n<4;++n)EnableWindow(control(AnchorButton+n),autoSize);bool border=stringValue(c,"frame")!="borderless";EnableWindow(control(ThicknessEdit),border);EnableWindow(control(ThicknessSlider),border);
+  updatePhotosV8();refreshing=false;InvalidateRect(settings,nullptr,TRUE);for(int id:{FramePreview,ViewGrid,ViewList})InvalidateRect(control(id),nullptr,FALSE);for(int n=0;n<5;++n)InvalidateRect(control(FrameCard+n),nullptr,FALSE);for(int n=0;n<4;++n)InvalidateRect(control(AnchorButton+n),nullptr,FALSE);
+ }
+ void applyV8(bool persist,bool visual=true){
+  if(refreshing||!settings)return;auto& c=store.active()["config"];auto& g=store.state["global"];auto select=[&](int id,int count){return std::clamp(int(SendMessage(control(id),CB_GETCURSEL,0,0)),0,count-1);};auto number=[&](int id,int low,int high){int value=std::clamp(_wtoi(controlText(control(id)).c_str()),low,high);SetWindowTextW(control(id),std::to_wstring(value).c_str());return value;};std::string oldOrder=stringValue(c,"order");
+  c["frame"]=frames[select(FrameCombo,5)];c["anchor"]=anchors[select(AnchorCombo,4)];c["ratio"]=ratios[select(RatioCombo,7)];c["transition"]=effects[select(EffectCombo,4)];c["order"]=orders[select(OrderCombo,2)];c["interval"]=number(IntervalEdit,3,300);c["thickness"]=number(ThicknessEdit,6,64);c["radius"]=number(RadiusEdit,0,32);c["shadow"]=number(ShadowEdit,0,100);
+  auto checked=[&](int id){return SendMessage(control(id),BM_GETCHECK,0,0)==BST_CHECKED;};c["limitAutoSize"]=checked(LimitCheck);int minimum=stringValue(c,"frame")=="borderless"?64:2*int(numberValue(c,"thickness",18))+64;c["maxWidth"]=number(MaxWidthEdit,minimum,8192);c["maxHeight"]=number(MaxHeightEdit,minimum,8192);
+  for(auto [id,key]:std::initializer_list<std::pair<int,const char*>>{{TopCheck,"alwaysOnTop"},{LockCheck,"lockPosition"},{SnapCheck,"snap"},{FullscreenCheck,"pauseFullscreen"},{BatteryCheck,"batteryReduceMotion"}})g[key]=checked(id);g["snapMargin"]=number(SnapMarginEdit,0,64);bool enabled=checked(StartupCheck);if(enabled!=boolValue(g,"autoStart")){if(startup(enabled))g["autoStart"]=enabled;else SendMessage(control(StartupCheck),BM_SETCHECK,boolValue(g,"autoStart")?BST_CHECKED:BST_UNCHECKED,0);}
+  if(visual)appearance();else{frame.playInterval=numberValue(c,"interval",10);frame.effect=comboIndex(c,"transition",effects,4);topmost();}
+  if(oldOrder!=stringValue(c,"order")){resetOrder();resetNavigation();}if(!boolValue(g,"pauseFullscreen",true))environment.fullscreen=false;syncEnvironment();if(persist){save();refreshV8();}
+  else{for(int id:{FramePreview,FrameCard,FrameCard+1,FrameCard+2,FrameCard+3,FrameCard+4})InvalidateRect(control(id),nullptr,FALSE);}
+ }
+ void photoCommandV8(int id){
+  if(id==ShowPhoto){int i=photoGrid.focus;if(!photoGrid.excluded&&i>=0&&i<int(displayedPhotos.size())){auto it=std::find(frame.paths.begin(),frame.paths.end(),displayedPhotos[i]);if(it!=frame.paths.end()){resetNavigation();frame.request(size_t(it-frame.paths.begin()));}}return;}
+  auto selected=photoGrid.selectedPaths();if(selected.empty())return;++catalogueGeneration;std::set<std::wstring> keys;for(auto& p:selected)keys.insert(pathKey(p));
+  if(id==ExcludePhoto){auto& excluded=store.active()["excluded"];if(photoGrid.excluded){Json retained=Json::array();for(auto& p:excluded)if(!keys.contains(pathKey(fs::path(wide(p.get<std::string>())))))retained.push_back(p);excluded=retained;}else{std::wstring message=L"将选中的 "+std::to_wstring(selected.size())+L" 张照片排除出轮播？原图保持不变。";if(MessageBoxW(settings,message.c_str(),L"排除轮播",MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES)return;for(auto& p:selected){Json value=utf8(p.wstring());if(std::find(excluded.begin(),excluded.end(),value)==excluded.end())excluded.push_back(value);}}Store scanned=store;scanned.scan();refreshCatalogue(std::move(scanned));save();updatePhotosV8();return;}
+  if(photoGrid.excluded)return;auto& order=store.active()["photoOrder"];auto isSelected=[&](size_t i){return keys.contains(pathKey(fs::path(wide(order[i].get<std::string>()))));};if(id==MoveUp){for(size_t i=1;i<order.size();++i)if(isSelected(i)&&!isSelected(i-1))std::swap(order[i],order[i-1]);}else if(id==MoveDown){for(size_t i=order.size();i>1;--i)if(isSelected(i-2)&&!isSelected(i-1))std::swap(order[i-2],order[i-1]);}commitPhotoOrderV8();
+ }
+ void commitPhotoOrderV8(){++catalogueGeneration;Store scanned=store;scanned.scan();refreshCatalogue(std::move(scanned));resetNavigation();save();updatePhotosV8();photoGrid.ensureFocus();}
+ void dropPhotosV8(){if(pendingDragPaths.empty())return;std::set<std::wstring> keys;for(auto& p:pendingDragPaths)keys.insert(pathKey(p));auto target=pathKey(pendingDragTarget);if(keys.contains(target))return;auto order=store.active()["photoOrder"];Json chosen=Json::array(),result=Json::array();for(auto& p:order)if(keys.contains(pathKey(fs::path(wide(p.get<std::string>())))))chosen.push_back(p);bool inserted=false;for(auto& p:order){auto key=pathKey(fs::path(wide(p.get<std::string>())));if(key==target){for(auto& item:chosen)result.push_back(item);inserted=true;}if(!keys.contains(key))result.push_back(p);}if(!inserted)for(auto& item:chosen)result.push_back(item);store.active()["photoOrder"]=result;pendingDragPaths.clear();commitPhotoOrderV8();}
+ void drawPreviewV8(const DRAWITEMSTRUCT& item,int style,bool card){
+  HDC dc=item.hDC;RECT box=item.rcItem;auto& c=store.active()["config"];bool selected=style==comboIndex(c,"frame",frames,5);HBRUSH bg=CreateSolidBrush(card&&selected?RGB(221,239,237):RGB(245,246,243));FillRect(dc,&box,bg);DeleteObject(bg);std::string color=stringValue(c,"color","#203336");if(cardColor!=color||cardPixels[0].empty()){cardColor=color;for(int i=0;i<5;++i)cardPixels[i]=frameMaterial(i,parseFrameColor(color));}
+  RECT space=box;InflateRect(&space,-px(10),-px(10));if(card)space.bottom-=px(24);float ratio=frame.hasPhoto?frame.current.ratio:4.f/3;if(frame.fixedRatio>0)ratio=frame.fixedRatio;else if(frame.fixedRatio<0)ratio=std::max(1.f,frame.bounds.w-2*Border)/std::max(1.f,frame.bounds.h-2*Border);float bw=style==4?0:float(numberValue(c,"thickness",18));float pw=std::sqrt(100000.f*ratio)+2*bw,ph=std::sqrt(100000.f/ratio)+2*bw;float scale=std::min(float(space.right-space.left)/pw,float(space.bottom-space.top)/ph);int width=int(pw*scale),height=int(ph*scale),x=space.left+(space.right-space.left-width)/2,y=space.top+(space.bottom-space.top-height)/2,border=int(bw*scale);
+  SaveDC(dc);auto region=CreateRoundRectRgn(x,y,x+width+1,y+height+1,int(numberValue(c,"radius",10)*scale*2),int(numberValue(c,"radius",10)*scale*2));SelectClipRgn(dc,region);DeleteObject(region);BITMAPINFO info{};info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);info.bmiHeader.biWidth=256;info.bmiHeader.biHeight=-256;info.bmiHeader.biPlanes=1;info.bmiHeader.biBitCount=32;StretchDIBits(dc,x,y,width,height,0,0,256,256,cardPixels[style].data(),&info,DIB_RGB_COLORS,SRCCOPY);
+  Thumbnails::Entry* image=nullptr;if(frame.hasPhoto&&frame.index<frame.paths.size())image=thumbnails.find(frame.paths[frame.index]);RECT inside{x+border,y+border,x+width-border,y+height-border};HBRUSH backing=CreateSolidBrush(RGB(225,232,229));FillRect(dc,&inside,backing);DeleteObject(backing);if(image&&image->bitmap){HDC memory=CreateCompatibleDC(dc);auto old=SelectObject(memory,image->bitmap);SetStretchBltMode(dc,HALFTONE);float fit=std::min(float(inside.right-inside.left)/image->width,float(inside.bottom-inside.top)/image->height);int iw=std::lround(image->width*fit),ih=std::lround(image->height*fit);StretchBlt(dc,inside.left+(inside.right-inside.left-iw)/2,inside.top+(inside.bottom-inside.top-ih)/2,iw,ih,memory,0,0,image->width,image->height,SRCCOPY);SelectObject(memory,old);DeleteDC(memory);}
+  // 预览内沿使用预乘透明阴影，与实际相框的强度一同更新。
+  if(border>0&&numberValue(c,"shadow",30)>0){int iw=inside.right-inside.left,ih=inside.bottom-inside.top;if(iw>0&&ih>0){BITMAPINFO shadowInfo{};shadowInfo.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);shadowInfo.bmiHeader.biWidth=iw;shadowInfo.bmiHeader.biHeight=-ih;shadowInfo.bmiHeader.biPlanes=1;shadowInfo.bmiHeader.biBitCount=32;void* data=nullptr;HBITMAP bitmap=CreateDIBSection(dc,&shadowInfo,DIB_RGB_COLORS,&data,nullptr,0);if(bitmap){float spread=std::max(1.f,8*scale),strength=float(numberValue(c,"shadow",30))/100;auto pixels=static_cast<DWORD*>(data);for(int yy=0;yy<ih;++yy)for(int xx=0;xx<iw;++xx){float edge=float(std::min({xx,yy,iw-1-xx,ih-1-yy}));pixels[yy*iw+xx]=DWORD(140*strength*std::max(0.f,1-edge/spread))<<24;}HDC memory=CreateCompatibleDC(dc);auto old=SelectObject(memory,bitmap);AlphaBlend(dc,inside.left,inside.top,iw,ih,memory,0,0,iw,ih,{AC_SRC_OVER,0,255,AC_SRC_ALPHA});SelectObject(memory,old);DeleteDC(memory);DeleteObject(bitmap);}}}RestoreDC(dc,-1);
+  if(card){RECT title=box;title.top=title.bottom-px(30);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(32,51,54));SelectObject(dc,settingsFont);auto name=controlText(item.hwndItem);DrawTextW(dc,name.c_str(),-1,&title,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(item.itemState&ODS_FOCUS){RECT focus=box;InflateRect(&focus,-3,-3);DrawFocusRect(dc,&focus);}}
+ }
+ std::optional<LRESULT> settingsMessageV8(UINT msg,WPARAM w,LPARAM l){
+  if(msg==WM_PAINT){PAINTSTRUCT paint;HDC dc=BeginPaint(settings,&paint);FillRect(dc,&paint.rcPaint,background);EndPaint(settings,&paint);return 0;}
+  if(msg==WM_ERASEBKGND)return 1;
+  if(msg==WM_SIZE){layoutV8();return 0;}
+  if(msg==WM_DPICHANGED){auto rect=reinterpret_cast<RECT*>(l);SetWindowPos(settings,nullptr,rect->left,rect->top,rect->right-rect->left,rect->bottom-rect->top,SWP_NOZORDER|SWP_NOACTIVATE);fontsV8();layoutV8();return 0;}
+  if(msg==WM_GETMINMAXINFO){auto info=reinterpret_cast<MINMAXINFO*>(l);auto work=frame.workArea(frame.bounds);info->ptMinTrackSize={std::min(LONG(px(640)),work.right-work.left),std::min(LONG(px(480)),work.bottom-work.top)};return 0;}
+  if(msg==WM_VSCROLL&&!l){scrollV8(LOWORD(w));return 0;}if(msg==WM_MOUSEWHEEL){scrollV8(0,GET_WHEEL_DELTA_WPARAM(w));return 0;}
+  if(msg==WM_CTLCOLORSTATIC){auto dc=reinterpret_cast<HDC>(w);SetTextColor(dc,RGB(32,51,54));SetBkColor(dc,RGB(245,246,243));return reinterpret_cast<LRESULT>(background);}
+  if(msg==WM_DRAWITEM){auto item=reinterpret_cast<DRAWITEMSTRUCT*>(l);int id=item->CtlID;if(id==FramePreview||(id>=FrameCard&&id<FrameCard+5)){drawPreviewV8(*item,id==FramePreview?comboIndex(store.active()["config"],"frame",frames,5):id-FrameCard,id!=FramePreview);return TRUE;}bool selected=id>=PagePhotos&&id<=PageApplication?settingsPage==id-PagePhotos:(id==ViewGrid?photoGrid.grid:(id==ViewList?!photoGrid.grid:(id>=AnchorButton&&id<AnchorButton+4&&comboIndex(store.active()["config"],"anchor",anchors,4)==id-AnchorButton)));HBRUSH fill=CreateSolidBrush(selected?RGB(40,122,127):RGB(255,255,255));FillRect(item->hDC,&item->rcItem,fill);DeleteObject(fill);SetBkMode(item->hDC,TRANSPARENT);SetTextColor(item->hDC,selected?RGB(255,255,255):RGB(32,51,54));SelectObject(item->hDC,settingsFont);auto text=controlText(item->hwndItem);DrawTextW(item->hDC,text.c_str(),-1,&item->rcItem,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(item->itemState&ODS_FOCUS){auto r=item->rcItem;InflateRect(&r,-3,-3);DrawFocusRect(item->hDC,&r);}return TRUE;}
+  if(msg==WM_HSCROLL&&l){int slider=GetDlgCtrlID(reinterpret_cast<HWND>(l)),edit=slider==ThicknessSlider?ThicknessEdit:(slider==RadiusSlider?RadiusEdit:ShadowEdit);SetWindowTextW(control(edit),std::to_wstring(SendMessage(reinterpret_cast<HWND>(l),TBM_GETPOS,0,0)).c_str());bool done=LOWORD(w)!=TB_THUMBTRACK;if(done||seconds()-lastSliderPreview>.03){lastSliderPreview=seconds();applyV8(done);}return 0;}
+  if(msg==WM_APP+72){dropPhotosV8();return 0;}if(msg==WM_APP+73)throw E_FAIL;
+  if(msg==WM_APP+74){InvalidateRect(control(FramePreview),nullptr,FALSE);for(int i=0;i<5;++i)InvalidateRect(control(FrameCard+i),nullptr,FALSE);return 0;}
+  if(msg==WM_CLOSE){RECT r;GetWindowRect(settings,&r);store.state["settingsBounds"]={{"x",r.left},{"y",r.top},{"width",r.right-r.left},{"height",r.bottom-r.top}};save();DestroyWindow(settings);return 0;}
+  if(msg==WM_NCDESTROY){settings=nullptr;newSettings=false;thumbnails.clear();displayedPhotos.clear();settingsControls.clear();for(auto& pixels:cardPixels){std::vector<BYTE> empty;pixels.swap(empty);}if(settingsFont){DeleteObject(settingsFont);settingsFont=nullptr;}if(utilityFont){DeleteObject(utilityFont);utilityFont=nullptr;}return 0;}
+  if(msg==WM_COMMAND){if(refreshing)return 0;int id=LOWORD(w),event=HIWORD(w);
+   if(id==ManageLists){listManagerExpanded=!listManagerExpanded;settingsScrollY=0;layoutV8();return 0;}
+   if(id==ManageSources){sourcesExpanded=!sourcesExpanded;layoutV8();return 0;}
+   if(id>=PagePhotos&&id<=PageApplication){settingsPage=id-PagePhotos;settingsScrollY=0;layoutV8();return 0;}
+   if(id>=FrameCard&&id<FrameCard+5){SendMessage(control(FrameCombo),CB_SETCURSEL,id-FrameCard,0);applyV8(true);return 0;}
+   if(id>=AnchorButton&&id<AnchorButton+4){SendMessage(control(AnchorCombo),CB_SETCURSEL,id-AnchorButton,0);applyV8(true);return 0;}
+   if(id==ViewGrid||id==ViewList){store.state["global"]["photoView"]=id==ViewGrid?"grid":"list";save();updatePhotosV8();InvalidateRect(control(ViewGrid),nullptr,FALSE);InvalidateRect(control(ViewList),nullptr,FALSE);return 0;}
+   if(id==UseCurrentSize){SetWindowTextW(control(MaxWidthEdit),std::to_wstring(int(frame.bounds.w)).c_str());SetWindowTextW(control(MaxHeightEdit),std::to_wstring(int(frame.bounds.h)).c_str());SendMessage(control(LimitCheck),BM_SETCHECK,BST_CHECKED,0);applyV8(true);return 0;}
+   if((id==PlaylistBox&&event==LBN_SELCHANGE)||(id==PlaylistCompact&&event==CBN_SELCHANGE)){photoGrid.selected.clear();photoGrid.focus=-1;switchByIndex(int(SendMessage(control(id),id==PlaylistBox?LB_GETCURSEL:CB_GETCURSEL,0,0)));return 0;}
+   if((id==SearchEdit&&event==EN_CHANGE)||(id==ExcludedCheck&&event==BN_CLICKED)){updatePhotosV8();return 0;}
+   bool number=id==ThicknessEdit||id==RadiusEdit||id==ShadowEdit||id==IntervalEdit||id==MaxWidthEdit||id==MaxHeightEdit||id==SnapMarginEdit;
+   bool combo=id==RatioCombo||id==EffectCombo||id==OrderCombo||id==FrameCombo||id==AnchorCombo;
+   bool check=id==LimitCheck||id==TopCheck||id==LockCheck||id==StartupCheck||id==SnapCheck||id==FullscreenCheck||id==BatteryCheck;
+   if((number&&event==EN_KILLFOCUS)||(combo&&event==CBN_SELCHANGE)||(check&&event==BN_CLICKED)){applyV8(true,id!=IntervalEdit&&id!=OrderCombo&&id!=TopCheck&&id!=LockCheck&&id!=StartupCheck&&id!=SnapCheck&&id!=SnapMarginEdit&&id!=FullscreenCheck&&id!=BatteryCheck);return 0;}
+   if(id<100&&event==BN_CLICKED){command(id);if(id==PickColor||id==ResetAppearance)refreshV8();return 0;}
+   return 0;
+  }
+  return {};
+ }

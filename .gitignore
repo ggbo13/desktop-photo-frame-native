@@ -1,0 +1,14 @@
+native/toolchain/
+native/out/
+native/dist/
+native/artifacts/
+native/vendor/codecs/*/
+backups/
+node_modules/
+.env
+.env.*
+*.pdb
+*.obj
+*.o
+*.log
+__pycache__/
