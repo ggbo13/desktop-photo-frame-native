@@ -196,6 +196,10 @@ public:
     }
     void applyGeometry(Bounds end,bool animate) {
         ensureCarrier(animate?from:end,end,!hasPhoto||dragging||resizing);
+        // 内圆角随外圆角减去边框厚度，薄边框的大圆角不再露出方形照片角。
+        float innerRadius=Border>0?std::max(0.f,cornerRadius-Border):0.f;
+        innerClip->SetTopLeftRadiusX(innerRadius);innerClip->SetTopLeftRadiusY(innerRadius);innerClip->SetTopRightRadiusX(innerRadius);innerClip->SetTopRightRadiusY(innerRadius);
+        innerClip->SetBottomLeftRadiusX(innerRadius);innerClip->SetBottomLeftRadiusY(innerRadius);innerClip->SetBottomRightRadiusX(innerRadius);innerClip->SetBottomRightRadiusY(innerRadius);
         if(animate) {
             root->SetOffsetX(curve(from.x,end.x).Get());root->SetOffsetY(curve(from.y,end.y).Get());
             outerClip->SetRight(curve(from.w,end.w).Get());outerClip->SetBottom(curve(from.h,end.h).Get());

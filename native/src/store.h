@@ -51,6 +51,7 @@ struct Store {
   global["snap"]=boolValue(global,"snap",true);global["snapMargin"]=int(std::clamp(numberValue(global,"snapMargin",12),0.,64.));
   global["pauseFullscreen"]=boolValue(global,"pauseFullscreen",true);global["batteryReduceMotion"]=boolValue(global,"batteryReduceMotion",true);
   global["photoView"]=stringValue(global,"photoView")=="list"?"list":"grid";
+  global["theme"]=stringValue(global,"theme")=="dark"?"dark":"light";
   global["preferredPhotoArea"]=std::clamp(numberValue(global,"preferredPhotoArea",0),0.,67108864.);
   raw["global"]=global;raw["nativeSchemaVersion"]=1;raw["applicationVersion"]=PHOTO_FRAME_VERSION;return raw;
  }

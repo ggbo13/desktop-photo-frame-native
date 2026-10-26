@@ -1,13 +1,15 @@
 # 原生相框测试与托盘隔离
 
-当前构建：`2.0.0-preview.14`。
+当前构建：`2.0.0-preview.15`。
+
+preview.15 默认回归为 8 组，新增 `settings-theme-smoke.ps1` 和 `settings-review-smoke.ps1`，检查方案一布局、夜间切换与持久化、选中预览、静止解码、GDI 资源、最小窗口参数及键盘焦点同步。另可运行 `settings-layout-smoke.ps1` 验证排序与固定预览，`materials-smoke.ps1` 验证材质；测试均保留产物。
 
 preview.14 默认回归为 6 组，其中 `composition-idle-smoke.ps1` 无需截图，检查空闲提交、唤醒频率及画布面积。较长的几何循环可以单独运行 `pwsh -NoProfile -File native/tests/composition-envelope-smoke.ps1`，默认四角和四种效果共 208 次切换；它不等于录屏黑闪或硬件呈现掉帧验收。
 
 先构建，再运行统一回归：
 
 ```powershell
-pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.14-delivery
+pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.15-delivery
 pwsh -NoProfile -File native/tests/run-regression.ps1
 ```
 

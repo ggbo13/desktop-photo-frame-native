@@ -5,9 +5,13 @@
 static std::vector<BYTE> frameMaterial(int style,COLORREF color){
  constexpr int size=256;std::vector<BYTE> pixels(size*size*4);
  for(int y=0;y<size;++y)for(int x=0;x<size;++x){float r=GetRValue(color),g=GetGValue(color),b=GetBValue(color);float noise=float((x*73+y*151+x*y*13)%31)/31.f-.5f;
-  if(style==1){float grain=std::sin(x*.47f+std::sin(y*.018f)*2.4f)+.35f*std::sin(x*1.73f+y*.024f);float light=grain*7+noise*4;r=112+light;g=78+light*.75f;b=47+light*.48f;}
-  else if(style==2){float light=12*std::sin((x+y)*.012f)+noise*3;r=156+light;g=163+light;b=164+light;}
-  else if(style==3){r=244+noise*2;g=242+noise*2;b=231+noise*2;}
+  int dx=std::min(x,size-1-x),dy=std::min(y,size-1-y);
+  // 木纹沿四条边分别延伸，最近边的切换自然形成四角斜接。
+  if(style==1){float along=dy<=dx?x:y,across=dy<=dx?y:x;float grain=std::sin(across*.64f+std::sin(along*.024f)*1.7f)+.24f*std::sin(across*1.83f+along*.014f);float light=grain*4.5f+noise*2;r=119+light;g=84+light*.75f;b=54+light*.5f;}
+  else if(style==2){float light=4*std::sin((x+y)*.012f)+std::sin(y*2.73f)*.7f+noise*.9f;r=164+light;g=171+light;b=175+light;}
+  else if(style==3){r=249+noise*.8f;g=248+noise*.8f;b=244+noise*.8f;}
+  // 外沿做克制的高光与暗边，内部保持原色；不增加绘图资源或动态刷新。
+  float edge=float(std::min(dx,dy)),rim=std::max(0.f,1-edge/3.f);float light=(y<3||x<3?5.5f:-4.f)*rim;r+=light;g+=light;b+=light;
   size_t i=(y*size+x)*4;pixels[i]=BYTE(std::clamp(b,0.f,255.f));pixels[i+1]=BYTE(std::clamp(g,0.f,255.f));pixels[i+2]=BYTE(std::clamp(r,0.f,255.f));pixels[i+3]=255;
  }return pixels;
 }

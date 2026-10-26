@@ -3,26 +3,27 @@
  PhotoGrid photoGrid;std::vector<HWND> settingsControls;std::vector<BYTE> cardPixels[5];std::string cardColor;
  std::vector<fs::path> pendingDragPaths;fs::path pendingDragTarget;double lastSliderPreview=0;
  int px(float v)const{return std::lround(v*settingsDpi);}
- HWND ui(const wchar_t* type,const wchar_t* text,int id,DWORD style=0){HWND h=createControl(type,text,id,0,0,100,30,style|WS_CLIPSIBLINGS);settingsControls.push_back(h);return h;}
+ #include "settings-v15.inc"
+ HWND ui(const wchar_t* type,const wchar_t* text,int id,DWORD style=0){if(wcscmp(type,L"BUTTON")==0&&(style&BS_TYPEMASK)!=BS_AUTOCHECKBOX)style=(style&~BS_TYPEMASK)|BS_OWNERDRAW;HWND h=createControl(type,text,id,0,0,100,30,style|WS_CLIPSIBLINGS);settingsControls.push_back(h);if(h){if(wcscmp(type,L"EDIT")==0||wcscmp(type,L"LISTBOX")==0){SetWindowLongPtr(h,GWL_EXSTYLE,GetWindowLongPtr(h,GWL_EXSTYLE)&~WS_EX_CLIENTEDGE);SetWindowLongPtr(h,GWL_STYLE,GetWindowLongPtr(h,GWL_STYLE)&~WS_BORDER);SetWindowPos(h,nullptr,0,0,0,0,SWP_FRAMECHANGED|SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE);}SetWindowSubclass(h,controlProcedure15,15,reinterpret_cast<DWORD_PTR>(this));}return h;}
  void uiLabel(int id,const wchar_t* text){auto h=ui(L"STATIC",text,id,SS_LEFT);SetWindowLongPtrW(h,GWL_STYLE,GetWindowLongPtrW(h,GWL_STYLE)&~WS_TABSTOP);}
- void uiCombo(int id,std::initializer_list<const wchar_t*> values){auto h=ui(L"COMBOBOX",L"",id,CBS_DROPDOWNLIST|WS_VSCROLL);for(auto value:values)SendMessageW(h,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(value));}
+ void uiCombo(int id,std::initializer_list<const wchar_t*> values){auto h=ui(L"COMBOBOX",L"",id,CBS_DROPDOWNLIST|CBS_OWNERDRAWFIXED|CBS_HASSTRINGS|WS_VSCROLL);for(auto value:values)SendMessageW(h,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(value));}
  void fontsV8(float testScale=0){
   HFONT previous=settingsFont,oldUtility=utilityFont;settingsDpi=testScale>0?testScale:GetDpiForWindow(settings)/96.f;
   settingsFont=CreateFontW(-px(15),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Microsoft YaHei UI");
   utilityFont=CreateFontW(-px(13),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Segoe UI");
   for(auto h:settingsControls)SendMessageW(h,WM_SETFONT,reinterpret_cast<WPARAM>(settingsFont),TRUE);photoGrid.font=settingsFont;photoGrid.dpi=settingsDpi;
   for(int id:{IntervalEdit,ThicknessEdit,RadiusEdit,ShadowEdit,MaxWidthEdit,MaxHeightEdit,SnapMarginEdit})SendMessageW(control(id),WM_SETFONT,reinterpret_cast<WPARAM>(utilityFont),TRUE);
-  if(previous)DeleteObject(previous);if(oldUtility)DeleteObject(oldUtility);
+  fonts15();if(previous)DeleteObject(previous);if(oldUtility)DeleteObject(oldUtility);
  }
  void showSettings(){
   if(settings){ShowWindow(settings,SW_RESTORE);SetForegroundWindow(settings);return;}
   newSettings=true;settingsPage=0;settingsScrollY=0;listManagerExpanded=false;sourcesExpanded=false;settingsControls.clear();photoGrid.selected.clear();photoGrid.focus=-1;photoGrid.scroll=0;
-  auto saved=objectValue(store.state,"settingsBounds");RECT work=frame.workArea(frame.bounds);float initialDpi=GetDpiForWindow(frame.hwnd)/96.f;int w=int(numberValue(saved,"width",1040*initialDpi)),h=int(numberValue(saved,"height",720*initialDpi));
+  auto saved=objectValue(store.state,"settingsBounds");RECT work=frame.workArea(frame.bounds);float initialDpi=GetDpiForWindow(frame.hwnd)/96.f;int w=int(numberValue(saved,"width",1280*initialDpi)),h=int(numberValue(saved,"height",800*initialDpi));
   RECT wanted{LONG(numberValue(saved,"x",work.left+40)),LONG(numberValue(saved,"y",work.top+40)),0,0};wanted.right=wanted.left+w;wanted.bottom=wanted.top+h;MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromRect(&wanted,MONITOR_DEFAULTTONEAREST),&monitor);work=monitor.rcWork;
   w=std::clamp(w,std::min(640,int(work.right-work.left)),int(work.right-work.left));h=std::clamp(h,std::min(480,int(work.bottom-work.top)),int(work.bottom-work.top));
   int x=std::clamp(int(wanted.left),int(work.left),int(work.right)-w),y=std::clamp(int(wanted.top),int(work.top),int(work.bottom)-h);
-  settings=CreateWindowExW(0,L"NativePhotoFrameSettings",L"桌面相框 " PHOTO_FRAME_VERSION_W L" · 照片与设置",WS_OVERLAPPEDWINDOW|WS_VSCROLL,x,y,w,h,nullptr,nullptr,module,nullptr);
-  uiLabel(600,L"播放列表");ui(L"LISTBOX",L"",PlaylistBox,LBS_NOTIFY|WS_VSCROLL);uiCombo(PlaylistCompact,{});ui(L"EDIT",L"",NameEdit,ES_AUTOHSCROLL);
+  settings=CreateWindowExW(WS_EX_CONTROLPARENT,L"NativePhotoFrameSettings",L"桌面相框 " PHOTO_FRAME_VERSION_W L" · 照片与设置",WS_OVERLAPPEDWINDOW|WS_VSCROLL|WS_CLIPCHILDREN,x,y,w,h,nullptr,nullptr,module,nullptr);
+  uiLabel(600,L"播放列表");ui(L"LISTBOX",L"",PlaylistBox,LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|WS_VSCROLL);uiCombo(PlaylistCompact,{});ui(L"EDIT",L"",NameEdit,ES_AUTOHSCROLL);
   ui(L"BUTTON",L"新建",NewList);ui(L"BUTTON",L"改名",RenameList);ui(L"BUTTON",L"删除列表…",DeleteList);ui(L"BUTTON",L"管理列表",ManageLists);ui(L"BUTTON",L"管理来源",ManageSources);uiLabel(620,L"相框样式");
   const wchar_t* tabs[]={L"照片",L"外观",L"播放",L"应用"};for(int i=0;i<4;++i)ui(L"BUTTON",tabs[i],PagePhotos+i,BS_OWNERDRAW);
   uiLabel(601,L"照片与来源");ui(L"BUTTON",L"添加照片…",AddFiles);ui(L"BUTTON",L"添加文件夹…",AddFolder);ui(L"BUTTON",L"移除来源…",RemoveSource);ui(L"LISTBOX",L"",SourceBox,LBS_NOTIFY|WS_VSCROLL|WS_HSCROLL);
@@ -46,7 +47,11 @@
   uiLabel(614,L"窗口与启动");ui(L"BUTTON",L"相框置顶",TopCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"锁定位置（仍可缩放）",LockCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"Windows 登录后自动启动",StartupCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"拖动后吸附屏幕边缘",SnapCheck,BS_AUTOCHECKBOX);uiLabel(615,L"距边缘（像素）");ui(L"EDIT",L"12",SnapMarginEdit,ES_NUMBER);
   uiLabel(616,L"自动节能");ui(L"BUTTON",L"同屏程序全屏时隐藏并暂停",FullscreenCheck,BS_AUTOCHECKBOX);ui(L"BUTTON",L"使用电池时关闭动画，继续轮播",BatteryCheck,BS_AUTOCHECKBOX);uiLabel(617,L"锁屏和休眠期间暂停。恢复后继续，保留手动暂停与隐藏状态。");
   uiLabel(618,L"原生版 " PHOTO_FRAME_VERSION_W);ui(L"BUTTON",L"应用设置",SaveOptions);uiLabel(699,L"");
-  fontsV8();refreshV8();layoutV8();ShowWindow(settings,SW_SHOW);ShowWindow(settings,SW_SHOW);SetForegroundWindow(settings);
+  uiLabel(700,L"");uiLabel(701,L"");uiLabel(702,L"");uiLabel(705,L"照片与设置");uiLabel(619,L"界面主题");ui(L"BUTTON",L"切换夜间模式",ThemeToggle);uiCombo(ThemeCombo,{L"浅色模式",L"夜间模式"});
+  SetWindowTextW(control(602),L"选中照片预览");SetWindowTextW(control(NewList),L"新建播放列表");SetWindowTextW(control(AddFiles),L"添加照片");SetWindowTextW(control(AddFolder),L"添加文件夹");SetWindowTextW(control(ShowPhoto),L"播放");SetWindowTextW(control(ExcludePhoto),L"排除轮播…");
+  fontsV8();applyTheme15();refreshV8();layoutV8();
+  // 首次显示可能受到启动器的隐藏标记影响，再次明确显示以兼容后台启动与重复唤起。
+  ShowWindow(settings,SW_SHOW);ShowWindow(settings,SW_SHOW);SetForegroundWindow(settings);
  }
  #include "settings-layout-v9.inc"
  // 保留 preview.8 的整页滚动布局，便于回溯。
@@ -81,7 +86,7 @@
   SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS};info.nMax=px(std::max(0.f,bottom-pageTop))-1;info.nPage=px(std::max(1.f,height-pageTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1);int corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=settingsScrollY;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_HORZ,FALSE);photoGrid.viewport();InvalidateRect(settings,nullptr,FALSE);if(focused&&IsChild(settings,focused)&&IsWindowVisible(focused))SetFocus(focused);refreshing=wasRefreshing;if(again)layoutV8();
  }
  void scrollV8(int request,int wheel=0){SCROLLINFO info{sizeof(info),SIF_ALL};GetScrollInfo(settings,SB_VERT,&info);if(wheel)settingsScrollY-=wheel*px(64)/WHEEL_DELTA;else switch(request){case SB_LINEUP:settingsScrollY-=px(32);break;case SB_LINEDOWN:settingsScrollY+=px(32);break;case SB_PAGEUP:settingsScrollY-=info.nPage;break;case SB_PAGEDOWN:settingsScrollY+=info.nPage;break;case SB_THUMBTRACK:settingsScrollY=info.nTrackPos;break;}settingsScrollY=std::clamp(settingsScrollY,0,std::max(0,info.nMax-int(info.nPage)+1));layoutV8();}
- void updateSelectionV8(){if(!newSettings)return;size_t count=photoGrid.selected.size();bool playable=!photoGrid.excluded;for(int id:{MoveUp,MoveDown})EnableWindow(control(id),playable&&count>0);EnableWindow(control(ExcludePhoto),count>0);EnableWindow(control(ShowPhoto),playable&&photoGrid.focus>=0);auto status=std::to_wstring(frame.paths.size())+L" 张可播放 · 已选 "+std::to_wstring(count)+L" 张";if(displayedPhotos.empty())status=photoGrid.excluded?L"没有已排除的照片。":L"添加照片或调整搜索条件。";if(!store.problems.empty())status+=L" · "+store.problems.front();SetWindowTextW(control(200),status.c_str());}
+ void updateSelectionV8(){if(!newSettings)return;size_t count=photoGrid.selected.size();bool playable=!photoGrid.excluded;for(int id:{MoveUp,MoveDown})EnableWindow(control(id),playable&&count>0);EnableWindow(control(ExcludePhoto),count>0);EnableWindow(control(ShowPhoto),playable&&photoGrid.focus>=0);auto status=std::to_wstring(frame.paths.size())+L" 张可播放 · 已选 "+std::to_wstring(count)+L" 张";if(displayedPhotos.empty())status=photoGrid.excluded?L"没有已排除的照片。":L"添加照片或调整搜索条件。";if(!store.problems.empty())status+=L" · "+store.problems.front();SetWindowTextW(control(200),status.c_str());refreshLabels15();}
  void updatePhotosV8(){
   if(!newSettings||!photoGrid.hwnd)return;photoGrid.excluded=SendMessage(control(ExcludedCheck),BM_GETCHECK,0,0)==BST_CHECKED;auto query=controlText(control(SearchEdit));std::transform(query.begin(),query.end(),query.begin(),::towlower);
   std::vector<fs::path> candidates=frame.paths;if(photoGrid.excluded){candidates.clear();for(auto& p:store.active()["excluded"])candidates.emplace_back(wide(p.get<std::string>()));}
@@ -125,6 +130,7 @@
   if(card){RECT title=box;title.top=title.bottom-px(30);SetBkMode(dc,TRANSPARENT);SetTextColor(dc,RGB(32,51,54));SelectObject(dc,settingsFont);auto name=controlText(item.hwndItem);DrawTextW(dc,name.c_str(),-1,&title,DT_CENTER|DT_VCENTER|DT_SINGLELINE);if(item.itemState&ODS_FOCUS){RECT focus=box;InflateRect(&focus,-3,-3);DrawFocusRect(dc,&focus);}}
  }
  std::optional<LRESULT> settingsMessageV8(UINT msg,WPARAM w,LPARAM l){
+  if(auto result=settingsMessage15(msg,w,l))return result;
   if(msg==WM_PAINT){PAINTSTRUCT paint;HDC dc=BeginPaint(settings,&paint);FillRect(dc,&paint.rcPaint,background);EndPaint(settings,&paint);return 0;}
   if(msg==WM_ERASEBKGND)return 1;
   if(msg==WM_SIZE){layoutV8();return 0;}

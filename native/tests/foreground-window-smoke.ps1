@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.14-delivery/DesktopPhotoFrameNative.exe',[int]$FrameX=140,[switch]$AlwaysOnTop)
+param([string]$Executable='native/out/2.0.0-preview.15-delivery/DesktopPhotoFrameNative.exe',[int]$FrameX=140,[switch]$AlwaysOnTop)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 Add-Type @'
@@ -16,6 +16,7 @@ public static class FrameForegroundProbe {
  [DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out Rect rect);
  [DllImport("user32.dll")]public static extern bool IsWindowVisible(IntPtr h);
  [DllImport("user32.dll")]public static extern bool ShowWindow(IntPtr h,int action);
+ [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr z,int x,int y,int width,int height,uint flags);
  [DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();
  [DllImport("user32.dll")]public static extern IntPtr WindowFromPoint(Point point);
  [DllImport("user32.dll")]public static extern IntPtr GetWindowLongPtr(IntPtr h,int index);
@@ -54,6 +55,9 @@ try{
  $visual=Rect $main;$hit=Rect $input
  Check ((Width $hit) -lt 800 -and (Height $hit) -lt 600 -and (Width $visual) -gt (Width $hit)) '交互窗口不覆盖桌面'
  Check (([FrameForegroundProbe]::GetWindowLongPtr($main,-20).ToInt64() -band 0x08000000) -ne 0) '全屏绘图窗口不会因点击激活'
+ # 把受控窗口放到普通窗口组前方，避免把其他窗口遮挡误判成点击区域回归；不改变置顶开关。
+ [FrameForegroundProbe]::SetWindowPos($main,[IntPtr]::Zero,0,0,0,0,19)|Out-Null
+ [FrameForegroundProbe]::SetWindowPos($input,[IntPtr]::Zero,0,0,0,0,19)|Out-Null
  $inside=[FrameForegroundProbe+Point]::new();$inside.x=$hit.left+[int]((Width $hit)/2);$inside.y=$hit.top+[int]((Height $hit)/2)
  $insideWindow=[FrameForegroundProbe]::WindowFromPoint($inside);$observations.Add(@{action='内部命中';x=$inside.x;y=$inside.y;inputRect=$hit;inputVisible=[FrameForegroundProbe]::IsWindowVisible($input);visualVisible=[FrameForegroundProbe]::IsWindowVisible($main);frameState=[FrameForegroundProbe]::SendMessage($main,32830,[IntPtr]7,[IntPtr]::Zero).ToInt64();handle=$insideWindow.ToInt64();input=$input.ToInt64();visual=$main.ToInt64()})
  Check ($insideWindow -eq $input) '照片内部点击命中交互窗口'

@@ -8,17 +8,17 @@ Unicode true
 !ifndef PACKAGE_OUTPUT
  !error "需要指定 PACKAGE_OUTPUT"
 !endif
-Name "桌面相框原生版 2.0.0-preview.14"
+Name "桌面相框原生版 2.0.0-preview.15"
 OutFile "${PACKAGE_OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\DesktopPhotoFrameNative"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 Icon "frame.ico"
 UninstallIcon "frame.ico"
-VIProductVersion "2.0.0.14"
+VIProductVersion "2.0.0.15"
 VIAddVersionKey /LANG=2052 "ProductName" "桌面相框原生版"
 VIAddVersionKey /LANG=2052 "FileDescription" "桌面相框原生预览版安装程序"
-VIAddVersionKey /LANG=2052 "FileVersion" "2.0.0-preview.14"
+VIAddVersionKey /LANG=2052 "FileVersion" "2.0.0-preview.15"
 VIAddVersionKey /LANG=2052 "LegalCopyright" "Desktop Photo Frame"
 Var TestInstall
 !define MUI_ABORTWARNING
@@ -52,7 +52,7 @@ Section "桌面相框"
   CreateShortcut "$DESKTOP\桌面相框原生版.lnk" "$INSTDIR\DesktopPhotoFrameNative.exe"
   CreateShortcut "$SMPROGRAMS\桌面相框原生版.lnk" "$INSTDIR\DesktopPhotoFrameNative.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DesktopPhotoFrameNative" "DisplayName" "桌面相框原生版"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DesktopPhotoFrameNative" "DisplayVersion" "2.0.0-preview.14"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DesktopPhotoFrameNative" "DisplayVersion" "2.0.0-preview.15"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DesktopPhotoFrameNative" "UninstallString" '"$INSTDIR\卸载桌面相框原生版.exe"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DesktopPhotoFrameNative" "DisplayIcon" "$INSTDIR\DesktopPhotoFrameNative.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\DesktopPhotoFrameNative" "InstallLocation" "$INSTDIR"

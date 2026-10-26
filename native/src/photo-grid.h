@@ -4,6 +4,7 @@
 class PhotoGrid {
 public:
  HWND hwnd=nullptr;HFONT font=nullptr;Thumbnails* thumbnails=nullptr;
+ UiPalette palette;HFONT smallFont=nullptr;
  std::vector<fs::path> paths;std::set<std::wstring> selected;
  fs::path current;bool grid=true,excluded=false,dragging=false,mousePressed=false,pressCtrl=false,pressShift=false;
  int focus=-1,anchor=-1,scroll=0,drop=-1;POINT press{},dragPoint{};float dpi=1;
@@ -32,7 +33,8 @@ public:
   if(old!=scroll){viewport();updateDrop();}
  }
  void create(HWND parent,HINSTANCE module,int id,HFONT f,Thumbnails& cache){font=f;thumbnails=&cache;WNDCLASSW wc{};wc.hInstance=module;wc.lpfnWndProc=procedure;wc.lpszClassName=L"NativePhotoGridV8";wc.style=CS_DBLCLKS;wc.hCursor=LoadCursor(nullptr,IDC_ARROW);RegisterClassW(&wc);hwnd=CreateWindowExW(0,wc.lpszClassName,L"照片缩略图",WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|WS_CLIPSIBLINGS,0,0,100,100,parent,reinterpret_cast<HMENU>(INT_PTR(id)),module,this);}
- void paint(){PAINTSTRUCT ps;HDC screen=BeginPaint(hwnd,&ps);RECT client;GetClientRect(hwnd,&client);if(client.right<=0||client.bottom<=0){EndPaint(hwnd,&ps);return;}HDC dc=CreateCompatibleDC(screen);HBITMAP buffer=CreateCompatibleBitmap(screen,client.right,client.bottom);auto old=SelectObject(dc,buffer);FillRect(dc,&client,static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));SelectObject(dc,font);SetBkMode(dc,TRANSPARENT);
+ #include "photo-grid-paint-v15.inc"
+ void paintLegacy(){PAINTSTRUCT ps;HDC screen=BeginPaint(hwnd,&ps);RECT client;GetClientRect(hwnd,&client);if(client.right<=0||client.bottom<=0){EndPaint(hwnd,&ps);return;}HDC dc=CreateCompatibleDC(screen);HBITMAP buffer=CreateCompatibleBitmap(screen,client.right,client.bottom);auto old=SelectObject(dc,buffer);FillRect(dc,&client,static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));SelectObject(dc,font);SetBkMode(dc,TRANSPARENT);
   if(paths.empty()){SetTextColor(dc,RGB(83,110,109));DrawTextW(dc,excluded?L"没有已排除的照片":L"添加照片或文件夹，或调整搜索条件",-1,&client,DT_CENTER|DT_VCENTER|DT_SINGLELINE);}
   int cols=columns(),first=std::max(0,scroll/rowHeight())*cols,last=std::min(int(paths.size()),((scroll+int(client.bottom))/rowHeight()+1)*cols);
   for(int i=first;i<last;++i){RECT box=tile(i);bool chosen=selected.contains(pathKey(paths[i])),shown=pathKey(paths[i])==pathKey(current);HBRUSH fill=CreateSolidBrush(chosen?RGB(221,239,237):RGB(245,246,243));FillRect(dc,&box,fill);DeleteObject(fill);
@@ -51,6 +53,7 @@ public:
   try{
    if(msg==WM_GETDLGCODE)return DLGC_WANTARROWS|DLGC_WANTCHARS|((l&&reinterpret_cast<MSG*>(l)->wParam==VK_RETURN)?DLGC_WANTALLKEYS:0);
    if(msg==WM_PAINT){self->paint();return 0;}if(msg==WM_ERASEBKGND)return 1;
+   if(msg==WM_PRINTCLIENT){self->paint(reinterpret_cast<HDC>(w));return 0;}if(msg==WM_NCPAINT){auto result=DefWindowProcW(h,msg,w,l);uiScroll(h,self->palette);return result;}
    if(msg==WM_SIZE){self->viewport();return 0;}
    if(msg==WM_SETFOCUS||msg==WM_KILLFOCUS){InvalidateRect(h,nullptr,FALSE);return 0;}
    if(msg==WM_MOUSEWHEEL){self->scroll-=GET_WHEEL_DELTA_WPARAM(w)*self->rowHeight()/WHEEL_DELTA;self->viewport();return 0;}
@@ -62,7 +65,7 @@ public:
    if(msg==WM_LBUTTONUP){bool drag=self->dragging;int drop=self->drop;self->mousePressed=self->dragging=false;self->drop=-1;KillTimer(h,DragScrollTimer);ReleaseCapture();if(drag&&drop>=0&&drop<=int(self->paths.size())&&self->reorder){auto chosen=self->selectedPaths();auto target=drop<int(self->paths.size())?self->paths[drop]:fs::path{};self->reorder(chosen,target);}else if(!self->pressCtrl&&!self->pressShift)self->select(self->hit(GET_X_LPARAM(l),GET_Y_LPARAM(l)),false,false);InvalidateRect(h,nullptr,FALSE);return 0;}
    if(msg==WM_CAPTURECHANGED){self->mousePressed=self->dragging=false;self->drop=-1;KillTimer(h,DragScrollTimer);InvalidateRect(h,nullptr,FALSE);return 0;}
    if(msg==WM_LBUTTONDBLCLK){int i=self->hit(GET_X_LPARAM(l),GET_Y_LPARAM(l));if(i>=0&&self->play)self->play(i);return 0;}
-   if(msg==WM_KEYDOWN){bool ctrl=(GetKeyState(VK_CONTROL)&0x8000)!=0,shift=(GetKeyState(VK_SHIFT)&0x8000)!=0;int i=std::max(0,self->focus);if(w=='A'&&ctrl){self->selected.clear();for(auto& p:self->paths)self->selected.insert(pathKey(p));InvalidateRect(h,nullptr,FALSE);if(self->changed)self->changed();return 0;}if(w==VK_RETURN){if(self->play)self->play(self->focus);return 0;}if(w==VK_SPACE){self->select(i,true,false);return 0;}if(w==VK_LEFT)--i;else if(w==VK_RIGHT)++i;else if(w==VK_UP)i-=self->columns();else if(w==VK_DOWN)i+=self->columns();else if(w==VK_HOME)i=0;else if(w==VK_END)i=int(self->paths.size())-1;else return DefWindowProcW(h,msg,w,l);if(!self->paths.empty()){i=std::clamp(i,0,int(self->paths.size())-1);if(ctrl&&!shift)self->focus=i;else self->select(i,ctrl,shift);self->ensureFocus();}return 0;}
+   if(msg==WM_KEYDOWN){bool ctrl=(GetKeyState(VK_CONTROL)&0x8000)!=0,shift=(GetKeyState(VK_SHIFT)&0x8000)!=0;int i=std::max(0,self->focus);if(w=='A'&&ctrl){self->selected.clear();for(auto& p:self->paths)self->selected.insert(pathKey(p));InvalidateRect(h,nullptr,FALSE);if(self->changed)self->changed();return 0;}if(w==VK_RETURN){if(self->play)self->play(self->focus);return 0;}if(w==VK_SPACE){self->select(i,true,false);return 0;}if(w==VK_LEFT)--i;else if(w==VK_RIGHT)++i;else if(w==VK_UP)i-=self->columns();else if(w==VK_DOWN)i+=self->columns();else if(w==VK_HOME)i=0;else if(w==VK_END)i=int(self->paths.size())-1;else return DefWindowProcW(h,msg,w,l);if(!self->paths.empty()){i=std::clamp(i,0,int(self->paths.size())-1);if(ctrl&&!shift){self->focus=i;if(self->changed)self->changed();}else self->select(i,ctrl,shift);self->ensureFocus();}return 0;}
    if(msg==WM_NCDESTROY){self->hwnd=nullptr;SetWindowLongPtrW(h,GWLP_USERDATA,0);}
   }catch(...){PostMessageW(GetParent(h),WM_APP+73,0,0);}
   return DefWindowProcW(h,msg,w,l);

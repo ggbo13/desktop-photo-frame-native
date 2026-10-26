@@ -3,6 +3,7 @@
 #include "viewer.h"
 #include "thumbnails.h"
 #include "materials.h"
+#include "ui-theme.h"
 #include "photo-grid.h"
 #include <commctrl.h>
 #include <uxtheme.h>
@@ -24,6 +25,7 @@ constexpr int PagePhotos=400,PageAppearance=401,PagePlayback=402,PageApplication
 constexpr int FrameCard=410,AnchorButton=420,ViewGrid=430,ViewList=431,PlaylistCompact=432;
 constexpr int ThicknessSlider=440,RadiusSlider=441,ShadowSlider=442,LimitCheck=450,MaxWidthEdit=451,MaxHeightEdit=452,UseCurrentSize=453,FullscreenCheck=454,BatteryCheck=455;
 constexpr int ManageLists=460,ManageSources=461;
+constexpr int ThemeToggle=462,ThemeCombo=463;
 static const char* frames[] = {"minimal","wood","metal","polaroid","borderless"};
 static const char* ratios[] = {"free","auto","1:1","4:3","3:2","16:9","9:16"};
 static const char* anchors[] = {"top-left","top-right","bottom-left","bottom-right"};
@@ -65,7 +67,7 @@ public:
   RECT client;GetClientRect(settings,&client);
   for(int bar:{SB_HORZ,SB_VERT}){SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE};info.nMin=0;info.nMax=bar==SB_HORZ?959:879;info.nPage=bar==SB_HORZ?client.right:client.bottom;SetScrollInfo(settings,bar,&info,TRUE);scrollSettings(bar,SB_ENDSCROLL);}
  }
- ~Application(){quitting=true;unregisterEnvironment();if(wheelHook)UnhookWindowsHookEx(wheelHook);viewer.closed={};viewer.close();if(settings&&IsWindow(settings))DestroyWindow(settings);if(frame.hwnd&&IsWindow(frame.hwnd))DestroyWindow(frame.hwnd);frame.hwnd=frame.inputHwnd=nullptr;if(scanFuture.valid())scanFuture.wait();if(trayAdded)Shell_NotifyIconW(NIM_DELETE,&tray);for(auto icon:icons)if(icon)DestroyIcon(icon);if(font)DeleteObject(font);if(heading)DeleteObject(heading);if(background)DeleteObject(background);if(panel)DeleteObject(panel);if(singleton)CloseHandle(singleton);app=nullptr;}
+ ~Application(){quitting=true;unregisterEnvironment();if(wheelHook)UnhookWindowsHookEx(wheelHook);viewer.closed={};viewer.close();if(settings&&IsWindow(settings))DestroyWindow(settings);if(frame.hwnd&&IsWindow(frame.hwnd))DestroyWindow(frame.hwnd);frame.hwnd=frame.inputHwnd=nullptr;if(scanFuture.valid())scanFuture.wait();if(trayAdded)Shell_NotifyIconW(NIM_DELETE,&tray);for(auto icon:icons)if(icon)DestroyIcon(icon);if(font)DeleteObject(font);if(heading)DeleteObject(heading);if(background)DeleteObject(background);if(panel)DeleteObject(panel);for(auto brush:{canvasBrush15,panelBrush15,sideBrush15,fieldBrush15})if(brush)DeleteObject(brush);releaseFonts15();if(singleton)CloseHandle(singleton);app=nullptr;}
  HWND control(int id){return GetDlgItem(settings,id);}
  void save(){store.state["bounds"]={{"x",frame.bounds.x+frame.area.left},{"y",frame.bounds.y+frame.area.top},{"width",frame.bounds.w},{"height",frame.bounds.h}};store.state["global"]["preferredPhotoArea"]=frame.preferredPhotoArea;store.save();}
  void stopAfterFailure(HRESULT hr){
@@ -100,7 +102,7 @@ public:
   SetWindowTextW(frame.hwnd,(L"桌面相框 原生版 · "+frame.paths[i].filename().wstring()).c_str());
   auto it=std::find(bag.begin(),bag.end(),i);if(it!=bag.end())bag.erase(it);
   recordPresented(i);
-  updateTray();if(settings){if(newSettings)photoGrid.current=frame.paths[i];InvalidateRect(control(PhotoBox),nullptr,FALSE);InvalidateRect(control(FramePreview),nullptr,FALSE);if(newSettings)for(int n=0;n<5;++n)InvalidateRect(control(FrameCard+n),nullptr,FALSE);}
+  updateTray();if(settings){if(newSettings){photoGrid.current=frame.paths[i];refreshLabels15();}InvalidateRect(control(PhotoBox),nullptr,FALSE);InvalidateRect(control(FramePreview),nullptr,FALSE);if(newSettings)for(int n=0;n<5;++n)InvalidateRect(control(FrameCard+n),nullptr,FALSE);}
  }
  void appearance(){
   auto& c=store.active()["config"];frame.cancel();resetNavigation();frame.effect=comboIndex(c,"transition",effects,4);frame.anchor=comboIndex(c,"anchor",anchors,4);frame.playInterval=numberValue(c,"interval",10);
@@ -150,7 +152,7 @@ public:
  void tick(){
   pollEnvironment();
   double now=seconds();if(frame.d3d&&now-lastDeviceCheck>=1){lastDeviceCheck=now;check(frame.d3d->GetDeviceRemovedReason());}
-  viewer.tick();if(newSettings){auto visiblePhotos=photoGrid.visiblePaths();thumbnails.tick(photoGrid.hwnd,displayedPhotos,frame.hasPhoto&&frame.index<frame.paths.size()?frame.paths[frame.index]:fs::path{},&visiblePhotos,160*120*settingsDpi*settingsDpi);}else thumbnails.tick(settings?control(PhotoBox):nullptr,displayedPhotos,frame.hasPhoto&&frame.index<frame.paths.size()?frame.paths[frame.index]:fs::path{});frame.tick();if(testSeconds>0&&seconds()-startTime>testSeconds){exit();return;}
+  viewer.tick();if(newSettings){auto visiblePhotos=photoGrid.visiblePaths();thumbnails.tick(photoGrid.hwnd,displayedPhotos,previewPath15(),&visiblePhotos,240*160*settingsDpi*settingsDpi,(settingsPage==1?600*400:320*200)*settingsDpi*settingsDpi);}else thumbnails.tick(settings?control(PhotoBox):nullptr,displayedPhotos,frame.hasPhoto&&frame.index<frame.paths.size()?frame.paths[frame.index]:fs::path{});frame.tick();if(testSeconds>0&&seconds()-startTime>testSeconds){exit();return;}
   if(frame.log&&!frame.benchmark&&seconds()-lastMetrics>=1){lastMetrics=seconds();frame.sample();}
   if(scanFuture.valid()&&!frame.animating&&scanFuture.wait_for(std::chrono::seconds(0))==std::future_status::ready){auto result=scanFuture.get();if(scanGeneration==catalogueGeneration)refreshCatalogue(std::move(result));}
   if(seconds()-lastScan>5&&!scanFuture.valid()){
@@ -391,7 +393,9 @@ static LRESULT CALLBACK appProcedure(HWND h,UINT msg,WPARAM w,LPARAM l){
   if(msg==WM_APP+61&&app->testHooks&&app->newSettings){app->photoGrid.select(int(w),(l&1)!=0,(l&2)!=0);return 0;}
   if(msg==WM_APP+63&&app->testHooks&&app->newSettings){app->fontsV8(std::clamp(float(w)/100,1.f,2.f));app->settingsScrollY=0;app->layoutV8();return 0;}
   if(msg==WM_APP+65&&app->testHooks)return app->fullscreenWindow(reinterpret_cast<HWND>(l));
-  if(msg==WM_APP+62&&app->testHooks){auto& f=app->frame;switch(w){case 0:return f.index;case 1:return std::lround(f.bounds.w);case 2:return std::lround(f.bounds.h);case 3:return std::lround(f.bounds.x);case 4:return std::lround(f.bounds.y);case 5:return app->history.size();case 6:return f.slideDirection;case 7:return (f.visible?1:0)|(f.paused?2:0)|(f.suspended?4:0)|(f.reduceMotion?8:0)|(f.animating?16:0)|(f.loading?32:0);case 8:return app->photoGrid.selected.size();case 9:return app->thumbnails.bytes;case 10:return std::lround(f.preferredPhotoArea);case 11:return app->historyCursor;case 12:return f.transitions;case 13:return app->fullscreenForeground();case 14:return app->timerTicks;case 15:return app->frame.compositionCommits;case 16:return app->paintEvents;case 17:return app->mainTimerInterval;case 20:return 1;case 23:return app->frame.hasPhoto;}return 0;}
+  // 测试仅修改本窗口线程的键盘状态，不向桌面注入按键。
+  if(msg==WM_APP+66&&app->testHooks&&app->newSettings){BYTE before[256]{},keys[256]{};if(!GetKeyboardState(before))return 0;std::copy(before,before+256,keys);keys[VK_CONTROL]=(l&1)?0x80:0;keys[VK_SHIFT]=(l&2)?0x80:0;SetKeyboardState(keys);SendMessage(app->photoGrid.hwnd,WM_KEYDOWN,w,0);SetKeyboardState(before);return 1;}
+  if(msg==WM_APP+62&&app->testHooks){auto& f=app->frame;switch(w){case 0:return f.index;case 1:return std::lround(f.bounds.w);case 2:return std::lround(f.bounds.h);case 3:return std::lround(f.bounds.x);case 4:return std::lround(f.bounds.y);case 5:return app->history.size();case 6:return f.slideDirection;case 7:return (f.visible?1:0)|(f.paused?2:0)|(f.suspended?4:0)|(f.reduceMotion?8:0)|(f.animating?16:0)|(f.loading?32:0);case 8:return app->photoGrid.selected.size();case 9:return app->thumbnails.bytes;case 10:return std::lround(f.preferredPhotoArea);case 11:return app->historyCursor;case 12:return f.transitions;case 13:return app->fullscreenForeground();case 14:return app->timerTicks;case 15:return app->frame.compositionCommits;case 16:return app->paintEvents;case 17:return app->mainTimerInterval;case 20:return 1;case 23:return app->frame.hasPhoto;case 24:return app->thumbnails.loadsStarted;}return 0;}
   if(msg==app->taskbarCreated&&msg){app->trayAdded=false;app->updateTray();return 0;}
   if(msg==RestoreMessage){app->visible(true);if(app->settings)SetForegroundWindow(app->settings);return 0;}
   if(msg==TrayMessage){if(l==WM_LBUTTONUP)app->visible(true);if(l==WM_RBUTTONUP)app->menu();return 0;}

@@ -2,11 +2,11 @@
 
 Windows 桌面照片相框，使用 C++、Win32、Direct2D、DirectComposition 和 WIC；不加载 Electron 或浏览器内核。
 
-**[下载 2.0.0-preview.14 安装包](https://github.com/ggbo13/desktop-photo-frame-native/releases/tag/v2.0.0-preview.14)** · Windows x64 · 中文界面
+**[下载 2.0.0-preview.15 安装包](https://github.com/ggbo13/desktop-photo-frame-native/releases/tag/v2.0.0-preview.15)** · Windows x64 · 中文界面
 
 当前为预览版，尚未完成全部真实系统 DPI、跨屏目视和长期性能验收。
 
-![外观设置](docs/images/settings-preview14.png)
+![原生夜间外观设置](docs/images/settings-preview15-dark.png)
 
 ## 可以做什么
 
@@ -36,6 +36,9 @@ Windows 桌面照片相框，使用 C++、Win32、Direct2D、DirectComposition �
 
 ## 本版本修复
 
+preview.15 采用照片库布局，提供固定预览与浅色/夜间切换；夜间模式重启后保留。单击选中即可预览，双击或播放按钮才切换轮播；木纹、金属、纸白与内外沿细节一同更新，缩略图像素缓存仍限制为 8 MiB。[界面与素材说明](docs/UI-preview15.md)。
+
+
 preview.14 将绘图窗口限制在相框及换图包络内，拖动或显示器变化时重新定位，避免覆盖整个双屏桌面。可见静止状态约每 250 毫秒检查一次，隐藏后约每秒一次；动画和图片处理时使用较快计时。窗口与照片动画仍由合成器推进。[测量与限制](docs/DWM-preview14.md)。
 
 preview.13 阻止自动化测试、性能测试及故障注入注册系统托盘图标。测试启动器强制 `--no-tray`，在启动前拒绝不支持隔离的旧版本；恢复子进程继承隔离状态。正常使用保留一个托盘图标。
@@ -57,7 +60,7 @@ native/toolchain/llvm-mingw-20260908-ucrt-x86_64/bin/clang++.exe
 ```powershell
 python -m pip install --target native/toolchain/build-python-20260923 cmake==4.4.3 meson==1.12.1 ninja==1.13.0
 pwsh -NoProfile -File native/build-codecs.ps1
-pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.14-delivery -Release
+pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.15-delivery -Release
 ```
 
 解码器源码归档随仓库提供，构建脚本先检查 SHA-256，再按需解压。可通过 `-PythonExecutable` 指定 Python 路径。`-Release` 去掉调试符号；不传该开关则保留开发调试信息。
@@ -81,7 +84,7 @@ pwsh -NoProfile -File native/tests/installer-smoke.ps1
 
 可用 `run-regression.ps1 -Executable native/out/其他构建目录/DesktopPhotoFrameNative.exe` 指定待验收程序。测试数据写入被 Git 忽略的 `native/artifacts`，不使用日常配置；保留测试产物，不自动清理历史记录。更多规则见 [测试说明](native/tests/README.md)。
 
-本次发布通过 6 组回归，新增空闲提交、唤醒与画布范围检查；另通过 208 次连续换图的窗口几何检查、9 项缩放、13 项跨屏交互、30 项边缘像素与圆角检查，以及最终安装包的隔离安装及启动。真实托盘视图没有新增测试记录。[验证详情](docs/VALIDATION-preview14.md)。
+本次发布通过 8 组默认回归；另通过 28 项布局与排序、208 次连续换图几何、30 项边缘颜色/圆角、9 项缩放，以及普通/置顶状态的负坐标窗口交互。最终安装包隔离安装、版本与哈希核验通过。无新增测试托盘记录。[验证详情](docs/VALIDATION-preview15.md)。
 
 ## 已知限制
 

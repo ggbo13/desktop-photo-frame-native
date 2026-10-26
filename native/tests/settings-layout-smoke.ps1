@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.14-delivery/DesktopPhotoFrameNative.exe')
+param([string]$Executable='native/out/2.0.0-preview.15-delivery/DesktopPhotoFrameNative.exe')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 Add-Type @'
@@ -46,7 +46,7 @@ try{
  $main=[IntPtr]::Zero;for($i=0;$i -lt 60 -and $main -eq [IntPtr]::Zero;$i++){Start-Sleep -Milliseconds 100;$main=[LayoutProbe]::Find($process.Id,'原生版')};Check ($main -ne [IntPtr]::Zero) '程序启动'
  Msg $main 273 10|Out-Null;Start-Sleep -Milliseconds 400;$settings=[LayoutProbe]::Find($process.Id,'照片与设置');Check ($settings -ne [IntPtr]::Zero) '设置打开';[LayoutProbe]::SetWindowPos($settings,[IntPtr](-1),20,20,980,890,64)|Out-Null
  $dpi=[LayoutProbe]::GetDpiForWindow($settings)/96;Check (![LayoutProbe]::IsWindowVisible((Control 103)) -and ![LayoutProbe]::IsWindowVisible((Control 101))) '管理区默认收起'
- $grid=Control 102;$view=Client $grid;Check ($view.bottom -ge 480) '用户截图尺寸下照片区至少480物理像素';$gridHeight=$view.bottom;Check ([LayoutProbe]::GetScrollPos($settings,1) -eq 0) '照片页没有外层滚动'
+ $grid=Control 102;$view=Client $grid;if($view.bottom-lt480){@{dpi=$dpi;window=(Rect $settings);client=(Client $settings);grid=(Rect $grid);gridClient=$view;search=(Rect (Control 115));add=(Rect (Control 11));footer=(Rect (Control 27))}|ConvertTo-Json -Depth 5|Set-Content (Join-Path $output 'viewport-diagnostic.json')};Check ($view.bottom -ge 480) '用户截图尺寸下照片区至少480物理像素';$gridHeight=$view.bottom;Check ([LayoutProbe]::GetScrollPos($settings,1) -eq 0) '照片页没有外层滚动'
  Capture 'photos-grid.png';Command 431;Capture 'photos-list.png';Check ([int]($view.bottom/(64*$dpi)) -ge 5) '列表同时显示至少五张照片'
  Command 460;Check ([LayoutProbe]::IsWindowVisible((Control 103))) '列表管理可展开';Command 460
  Command 461;Check ([LayoutProbe]::IsWindowVisible((Control 101))) '来源管理可展开';Command 461;Check ((Client $grid).bottom -eq $gridHeight) '收起来源恢复照片区域'

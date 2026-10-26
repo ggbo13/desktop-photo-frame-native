@@ -1,6 +1,6 @@
  // 常用操作固定在视口内，照片和外观参数分别滚动。
  bool listManagerExpanded=false,sourcesExpanded=false,layingOutSettings=false;
- void layoutV8(){
+ void layoutV9(){
   if(!settings||!newSettings||settingsControls.empty()||layingOutSettings)return;
   layingOutSettings=true;RECT client{};GetClientRect(settings,&client);
   float width=client.right/settingsDpi,height=client.bottom/settingsDpi;

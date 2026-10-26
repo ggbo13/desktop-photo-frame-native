@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.14-delivery/DesktopPhotoFrameNative.exe',[int]$ListRowHeight=64)
+param([string]$Executable='native/out/2.0.0-preview.15-delivery/DesktopPhotoFrameNative.exe',[int]$ListRowHeight=64)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 Add-Type @'
@@ -26,6 +26,7 @@ public static class V8Probe {
  [DllImport("user32.dll")]public static extern bool PrintWindow(IntPtr h,IntPtr dc,uint flags);
  [DllImport("user32.dll")]public static extern bool RedrawWindow(IntPtr h,IntPtr rect,IntPtr region,uint flags);
  public static IntPtr Find(int pid,string title){IntPtr found=IntPtr.Zero;EnumWindows((h,p)=>{uint id;GetWindowThreadProcessId(h,out id);var t=new StringBuilder(512);GetWindowText(h,t,512);if(id==pid&&t.ToString().Contains(title))found=h;return true;},IntPtr.Zero);return found;}
+ public static string Windows(int pid){var result=new StringBuilder();EnumWindows((h,p)=>{uint id;GetWindowThreadProcessId(h,out id);if(id==pid){var t=new StringBuilder(512);GetWindowText(h,t,512);result.AppendLine(h+" visible="+IsWindowVisible(h)+" "+t);}return true;},IntPtr.Zero);return result.ToString();}
 }
 '@
 Add-Type -AssemblyName System.Drawing
@@ -52,7 +53,7 @@ function Capture($h,[string]$name){$r=[V8Probe+Rect]::new();[V8Probe]::GetWindow
 try{
  $main=[IntPtr]::Zero;for($i=0;$i -lt 50 -and $main -eq [IntPtr]::Zero;$i++){Start-Sleep -Milliseconds 100;$main=[V8Probe]::Find($process.Id,'原生版')};Check ($main -ne [IntPtr]::Zero) '应用启动';Start-Sleep -Milliseconds 350
  Command $main 16;$duplicate=Start-FrameTest $Executable -WindowStyle Hidden -PassThru -ArgumentList @('--data-dir',('"'+$data+'"'),'--test-seconds','3');Check ($duplicate.WaitForExit(5000) -and $duplicate.ExitCode -eq 0) '重复启动及时退出';Start-Sleep -Milliseconds 80;Check (((Query 7)-band 1) -ne 0) '重复启动恢复已有相框'
- Command $main 10;Start-Sleep -Milliseconds 300;$settings=[V8Probe]::Find($process.Id,'照片与设置');Check ([V8Probe]::IsWindowVisible($settings)) '四页设置打开'
+ Command $main 10;Start-Sleep -Milliseconds 300;$settings=[V8Probe]::Find($process.Id,'照片与设置');if(![V8Probe]::IsWindowVisible($settings)){$process.Refresh();[pscustomobject]@{HasExited=$process.HasExited;ExitCode=$(if($process.HasExited){$process.ExitCode});Windows=[V8Probe]::Windows($process.Id)}|ConvertTo-Json|Set-Content (Join-Path $output 'window-open-diagnostic.json')};Check ([V8Probe]::IsWindowVisible($settings)) '四页设置打开'
  $state=Read-State;Check ($state.global.photoView -eq 'grid' -and !$state.playlists[0].config.limitAutoSize -and $state.playlists[0].config.maxWidth -eq 640) '旧配置补齐默认值'
  foreach($page in 400..403){Command $settings $page;Capture $settings "page-$page.png"};Check ($true) '四个设置页面可以切换'
  [V8Probe]::SetWindowPos($settings,[IntPtr]::Zero,0,0,700,600,6)|Out-Null;Command $settings 400;Check ([V8Probe]::IsWindowVisible([V8Probe]::GetDlgItem($settings,432)) -and ![V8Probe]::IsWindowVisible([V8Probe]::GetDlgItem($settings,100))) '窄窗口使用列表下拉框';Capture $settings 'narrow.png'
