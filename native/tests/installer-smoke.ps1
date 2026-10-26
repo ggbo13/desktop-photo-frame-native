@@ -1,4 +1,4 @@
-param([string]$Installer='native/dist/2.0.0-preview.15/桌面相框 原生版 2.0.0-preview.15 Setup.exe',[string]$ExpectedVersion='2.0.0-preview.15')
+param([string]$Installer='native/dist/2.0.0-preview.16/桌面相框 原生版 2.0.0-preview.16 Setup.exe',[string]$ExpectedVersion='2.0.0-preview.16')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 $root=Split-Path (Split-Path $PSScriptRoot)

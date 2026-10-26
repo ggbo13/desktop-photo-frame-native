@@ -1,6 +1,13 @@
 # 原生相框测试与托盘隔离
 
-当前构建：`2.0.0-preview.15`。
+当前构建：`2.0.0-preview.16`。
+
+preview.16 默认回归为 9 组，加入 `settings-resize-smoke.ps1`。异步提交真实窗口缩放，确认目标尺寸已生效、设置和相框均响应、正常退出且没有测试托盘记录。默认检查已复现卡死的临界宽度；`-FullSweep` 检查四页、三种布局比例、19 个宽度与 6 个高度，共 1368 次尺寸变化。超出工作区的输入收至工作区内，并记录请求值与实际值。比例测试不代表修改了真实系统 DPI。
+
+```powershell
+pwsh -NoProfile -File native/tests/settings-resize-smoke.ps1 -FullSweep
+pwsh -NoProfile -File native/tests/settings-resize-smoke.ps1 -PhotoCount 0 -Theme light
+```
 
 preview.15 默认回归为 8 组，新增 `settings-theme-smoke.ps1` 和 `settings-review-smoke.ps1`，检查方案一布局、夜间切换与持久化、选中预览、静止解码、GDI 资源、最小窗口参数及键盘焦点同步。另可运行 `settings-layout-smoke.ps1` 验证排序与固定预览，`materials-smoke.ps1` 验证材质；测试均保留产物。
 
@@ -9,7 +16,7 @@ preview.14 默认回归为 6 组，其中 `composition-idle-smoke.ps1` 无需截
 先构建，再运行统一回归：
 
 ```powershell
-pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.15-delivery
+pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.16-delivery
 pwsh -NoProfile -File native/tests/run-regression.ps1
 ```
 

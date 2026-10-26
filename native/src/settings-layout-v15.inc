@@ -1,10 +1,13 @@
  // 方案一：左侧导航、照片主区、固定预览；只有参数区使用父窗口滚动条。
  void layoutV8(){
-  if(!settings||!newSettings||settingsControls.empty()||layingOutSettings)return;layingOutSettings=true;
+   if(!settings||!newSettings||settingsControls.empty()||layingOutSettings)return;layingOutSettings=true;
+   HWND focused=GetFocus();bool wasRefreshing=refreshing;refreshing=true;
+   // 滚动条首次占位或滚动位置修正最多重排三次，期间保持防重入，禁止递归收敛。
+   for(int pass=0;pass<3;++pass){
   RECT client{};GetClientRect(settings,&client);float width=client.right/settingsDpi,height=client.bottom/settingsDpi;
   bool side=width>=820;float sideWidth=side?198:0,x=sideWidth+24,cw=std::max(280.f,width-x-24),header=side?24:116;
   sidebar15={0,0,px(sideWidth),px(height-32)};inspector15={};sidebarVisible15=side;inspectorVisible15=false;
-  HWND focused=GetFocus();bool wasRefreshing=refreshing;refreshing=true;for(auto h:settingsControls)ShowWindow(h,SW_HIDE);
+   for(auto h:settingsControls)ShowWindow(h,SW_HIDE);
   float scrollTop=header+78,scrollBottom=height-46,bodyBottom=scrollTop;std::vector<int> fixed;
   auto place=[&](int id,float a,float b,float w,float h,bool scrolling=false){HWND child=control(id);if(!child)return;if(scrolling)b-=settingsScrollY/settingsDpi;SetWindowPos(child,nullptr,px(a),px(b),std::max(1,px(w)),std::max(1,px(h)),SWP_NOZORDER|SWP_NOACTIVATE);
    if(scrolling){int top=std::max(0,px(scrollTop-b)),bottom=std::min(px(h),px(scrollBottom-b));if(bottom<=top)return;auto clip=CreateRectRgn(0,top,px(w),bottom);if(!SetWindowRgn(child,clip,FALSE))DeleteObject(clip);}else{SetWindowRgn(child,nullptr,FALSE);fixed.push_back(id);}ShowWindow(child,SW_SHOWNA);};
@@ -47,8 +50,11 @@
    if(settingsPage==2){for(auto [label,id,h]:std::initializer_list<std::tuple<int,int,int>>{{610,EffectCombo,250},{611,OrderCombo,250},{612,IntervalEdit,38}}){p(label,x,y,aw,24);y+=32;p(id,x,y,std::min(380.f,aw),h);y+=60;}p(613,x,y,aw,50);y+=66;p(Pause,x,y,190,40);bodyBottom=y+58;}
    else{p(619,x,y,aw,24);y+=32;p(ThemeCombo,x,y,std::min(320.f,aw),250);y+=64;p(614,x,y,aw,28);y+=40;for(int id:{TopCheck,LockCheck,StartupCheck,SnapCheck}){p(id,x,y,aw,34);y+=44;}p(615,x,y,174,34);p(SnapMarginEdit,x+184,y,86,34);y+=58;p(616,x,y,aw,28);y+=38;for(int id:{FullscreenCheck,BatteryCheck}){p(id,x,y,aw,36);y+=46;}p(617,x,y,aw,58);y+=72;p(618,x,y,aw,25);bodyBottom=y+46;}
   }
-  SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS};info.nMax=px(std::max(0.f,bodyBottom-scrollTop))-1;info.nPage=px(std::max(1.f,scrollBottom-scrollTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1),corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=corrected;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_VERT,maximum>0);ShowScrollBar(settings,SB_HORZ,FALSE);
-  // 参数区采用控件裁剪，不遮挡左侧照片与固定预览。
+   // 始终保留纵向滚动条的宽度；内容无需滚动时禁用，避免预览断点随滚动条显隐振荡。
+   SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS|SIF_DISABLENOSCROLL};info.nMax=px(std::max(0.f,bodyBottom-scrollTop))-1;info.nPage=px(std::max(1.f,scrollBottom-scrollTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1),corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=corrected;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_HORZ,FALSE);
+   // 参数区采用控件裁剪，不遮挡左侧照片与固定预览。
   for(int id:fixed)if(IsWindowVisible(control(id)))SetWindowPos(control(id),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-  photoGrid.viewport();InvalidateRect(settings,nullptr,FALSE);if(focused&&IsChild(settings,focused)&&IsWindowVisible(focused))SetFocus(focused);refreshing=wasRefreshing;layingOutSettings=false;RECT after{};GetClientRect(settings,&after);if(again||after.right!=client.right)layoutV8();
+   photoGrid.viewport();InvalidateRect(settings,nullptr,FALSE);RECT after{};GetClientRect(settings,&after);if(!again&&EqualRect(&after,&client))break;
+   }
+   if(focused&&IsChild(settings,focused)&&IsWindowVisible(focused)&&GetFocus()!=focused)SetFocus(focused);refreshing=wasRefreshing;layingOutSettings=false;
  }
