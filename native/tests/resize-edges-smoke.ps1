@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.13-delivery/DesktopPhotoFrameNative.exe')
+param([string]$Executable='native/out/2.0.0-preview.14-delivery/DesktopPhotoFrameNative.exe')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 Add-Type @'
@@ -8,17 +8,22 @@ using System.Runtime.InteropServices;
 public static class ResizeEdgeProbe {
  public delegate bool EnumProc(IntPtr h,IntPtr p);
  [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left,top,right,bottom; }
+ [StructLayout(LayoutKind.Sequential)] public struct CursorPoint { public int x,y; }
  [StructLayout(LayoutKind.Sequential)] public struct MonitorInfo { public int size; public Rect screen,work; public int flags; }
  [DllImport("user32.dll")] public static extern IntPtr SetThreadDpiAwarenessContext(IntPtr value);
  [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f,IntPtr p);
  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h,StringBuilder s,int n);
  [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr h,uint message,IntPtr w,IntPtr l);
+ [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h,ref CursorPoint p);
+ [DllImport("user32.dll")] public static extern bool GetCursorPos(out CursorPoint p);
+ [DllImport("user32.dll")] public static extern bool SetCursorPos(int x,int y);
  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int index);
  [DllImport("user32.dll")] public static extern IntPtr MonitorFromRect(ref Rect rect,uint flags);
  [DllImport("user32.dll")] public static extern bool GetMonitorInfo(IntPtr h,ref MonitorInfo info);
  public static IntPtr Find(int processId){IntPtr found=IntPtr.Zero;EnumWindows((h,p)=>{uint id;GetWindowThreadProcessId(h,out id);if(id==(uint)processId){var title=new StringBuilder(128);GetWindowText(h,title,128);if(title.ToString()=="相框交互区域")found=h;}return true;},IntPtr.Zero);return found;}
  public static IntPtr Point(int x,int y){return (IntPtr)(((long)(ushort)y<<16)|(ushort)x);}
+ public static void Mouse(IntPtr h,uint message,int x,int y){SetCursorPos(x,y);System.Threading.Thread.Sleep(20);var p=new CursorPoint{x=x,y=y};ScreenToClient(h,ref p);SendMessage(h,message,new IntPtr(message==514?0:1),Point(p.x,p.y));}
 }
 '@
 [ResizeEdgeProbe]::SetThreadDpiAwarenessContext([IntPtr](-4)) | Out-Null
@@ -26,25 +31,24 @@ $root=Split-Path (Split-Path $PSScriptRoot)
 $binary=[IO.Path]::GetFullPath((Join-Path $root $Executable))
 $output=Join-Path $root ('native/artifacts/resize-edges-'+(Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $output -Force | Out-Null
-$virtualX=[ResizeEdgeProbe]::GetSystemMetrics(76)
-$virtualY=[ResizeEdgeProbe]::GetSystemMetrics(77)
 $probe=[ResizeEdgeProbe+Rect]::new();$probe.left=0;$probe.top=0;$probe.right=1;$probe.bottom=1
 $monitor=[ResizeEdgeProbe+MonitorInfo]::new();$monitor.size=[Runtime.InteropServices.Marshal]::SizeOf($monitor)
 if(![ResizeEdgeProbe]::GetMonitorInfo([ResizeEdgeProbe]::MonitorFromRect([ref]$probe,2),[ref]$monitor)){throw '无法读取显示器工作区'}
 
 function State($path){Get-Content -LiteralPath $path -Raw | ConvertFrom-Json}
 function Drag($window,$bounds,[string]$side){
- $x=[int]($bounds.x+$bounds.width/2-$virtualX);$y=[int]($bounds.y+$bounds.height/2-$virtualY)
+ $x=[int]($bounds.x+$bounds.width/2);$y=[int]($bounds.y+$bounds.height/2)
  $dx=0;$dy=0
  switch($side){
-  'left' {$x=[int]($bounds.x+3-$virtualX);$dx=-40}
-  'right' {$x=[int]($bounds.x+$bounds.width-3-$virtualX);$dx=40}
-  'top' {$y=[int]($bounds.y+3-$virtualY);$dy=-40}
-  'bottom' {$y=[int]($bounds.y+$bounds.height-3-$virtualY);$dy=40}
+  'left' {$x=[int]($bounds.x+3);$dx=-40}
+  'right' {$x=[int]($bounds.x+$bounds.width-3);$dx=40}
+  'top' {$y=[int]($bounds.y+3);$dy=-40}
+  'bottom' {$y=[int]($bounds.y+$bounds.height-3);$dy=40}
  }
- [ResizeEdgeProbe]::SendMessage($window,513,[IntPtr]::Zero,[ResizeEdgeProbe]::Point($x,$y)) | Out-Null
- [ResizeEdgeProbe]::SendMessage($window,512,[IntPtr]1,[ResizeEdgeProbe]::Point(($x+$dx),($y+$dy))) | Out-Null
- [ResizeEdgeProbe]::SendMessage($window,514,[IntPtr]::Zero,[ResizeEdgeProbe]::Point(($x+$dx),($y+$dy))) | Out-Null
+ # 每次按真实交互窗口转换客户区坐标，拖动时窗口原点会发生变化。
+ $saved=[ResizeEdgeProbe+CursorPoint]::new();[ResizeEdgeProbe]::GetCursorPos([ref]$saved)|Out-Null
+ try{[ResizeEdgeProbe]::Mouse($window,513,$x,$y);[ResizeEdgeProbe]::Mouse($window,512,($x+$dx),($y+$dy));[ResizeEdgeProbe]::Mouse($window,514,($x+$dx),($y+$dy))}
+ finally{[ResizeEdgeProbe]::SetCursorPos($saved.x,$saved.y)|Out-Null}
 }
 function Run-Case([string]$name,[string]$side,[string]$ratio,[bool]$locked,[bool]$atRight){
  $data=Join-Path $output $name;New-Item -ItemType Directory -Path $data -Force | Out-Null

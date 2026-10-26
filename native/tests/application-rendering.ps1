@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.13-delivery/DesktopPhotoFrameNative.exe',[int]$Seconds=130,[double]$Scale=1,[switch]$Video)
+param([string]$Executable='native/out/2.0.0-preview.14-delivery/DesktopPhotoFrameNative.exe',[int]$Seconds=130,[double]$Scale=1,[switch]$Video)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 $root=Split-Path (Split-Path $PSScriptRoot)

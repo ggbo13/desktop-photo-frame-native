@@ -2,11 +2,11 @@
 
 Windows 桌面照片相框，使用 C++、Win32、Direct2D、DirectComposition 和 WIC；不加载 Electron 或浏览器内核。
 
-**[下载 2.0.0-preview.13 安装包](https://github.com/ggbo13/desktop-photo-frame-native/releases/tag/v2.0.0-preview.13)** · Windows x64 · 中文界面
+**[下载 2.0.0-preview.14 安装包](https://github.com/ggbo13/desktop-photo-frame-native/releases/tag/v2.0.0-preview.14)** · Windows x64 · 中文界面
 
 当前为预览版，尚未完成全部真实系统 DPI、跨屏目视和长期性能验收。
 
-![外观设置](docs/images/settings.png)
+![外观设置](docs/images/settings-preview14.png)
 
 ## 可以做什么
 
@@ -36,6 +36,8 @@ Windows 桌面照片相框，使用 C++、Win32、Direct2D、DirectComposition �
 
 ## 本版本修复
 
+preview.14 将绘图窗口限制在相框及换图包络内，拖动或显示器变化时重新定位，避免覆盖整个双屏桌面。可见静止状态约每 250 毫秒检查一次，隐藏后约每秒一次；动画和图片处理时使用较快计时。窗口与照片动画仍由合成器推进。[测量与限制](docs/DWM-preview14.md)。
+
 preview.13 阻止自动化测试、性能测试及故障注入注册系统托盘图标。测试启动器强制 `--no-tray`，在启动前拒绝不支持隔离的旧版本；恢复子进程继承隔离状态。正常使用保留一个托盘图标。
 
 历史检查同时核验实时 Shell 图标和资源管理器实际使用的登记视图，无法核验时明确失败，不把普通 HKCU 查询中的零记录当成通过。真实托盘登记测试仅允许在独立 Windows 测试账户运行。**本程序不会自动清空 Windows 托盘历史或删除其他应用记录。**
@@ -55,7 +57,7 @@ native/toolchain/llvm-mingw-20260908-ucrt-x86_64/bin/clang++.exe
 ```powershell
 python -m pip install --target native/toolchain/build-python-20260923 cmake==4.4.3 meson==1.12.1 ninja==1.13.0
 pwsh -NoProfile -File native/build-codecs.ps1
-pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.13-delivery -Release
+pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.14-delivery -Release
 ```
 
 解码器源码归档随仓库提供，构建脚本先检查 SHA-256，再按需解压。可通过 `-PythonExecutable` 指定 Python 路径。`-Release` 去掉调试符号；不传该开关则保留开发调试信息。
@@ -79,7 +81,7 @@ pwsh -NoProfile -File native/tests/installer-smoke.ps1
 
 可用 `run-regression.ps1 -Executable native/out/其他构建目录/DesktopPhotoFrameNative.exe` 指定待验收程序。测试数据写入被 Git 忽略的 `native/artifacts`，不使用日常配置；保留测试产物，不自动清理历史记录。更多规则见 [测试说明](native/tests/README.md)。
 
-本次发布通过 5 组回归：版本门槛与隔离启动、4 种无托盘模式、74 项功能检查、13 项托盘命令检查、8 项设备恢复检查；另通过最终安装包的隔离安装及启动核验。真实托盘视图没有新增测试记录。
+本次发布通过 6 组回归，新增空闲提交、唤醒与画布范围检查；另通过 208 次连续换图的窗口几何检查、9 项缩放、13 项跨屏交互、30 项边缘像素与圆角检查，以及最终安装包的隔离安装及启动。真实托盘视图没有新增测试记录。[验证详情](docs/VALIDATION-preview14.md)。
 
 ## 已知限制
 

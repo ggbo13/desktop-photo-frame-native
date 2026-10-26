@@ -1,4 +1,4 @@
-﻿param([int]$Seconds=130,[string]$Executable='',[double]$Scale=1,[switch]$TimingOnly,[switch]$Video)
+param([int]$Seconds=130,[string]$Executable='',[double]$Scale=1,[switch]$TimingOnly,[switch]$Video)
 $ErrorActionPreference='Stop'
 if($TimingOnly -and $Video){throw '高频计时和编码录像必须分开运行。'}
 $projectRoot=Split-Path (Split-Path $PSScriptRoot)

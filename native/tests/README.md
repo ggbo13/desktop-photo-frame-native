@@ -1,11 +1,13 @@
 # 原生相框测试与托盘隔离
 
-当前构建：`2.0.0-preview.13`。
+当前构建：`2.0.0-preview.14`。
+
+preview.14 默认回归为 6 组，其中 `composition-idle-smoke.ps1` 无需截图，检查空闲提交、唤醒频率及画布面积。较长的几何循环可以单独运行 `pwsh -NoProfile -File native/tests/composition-envelope-smoke.ps1`，默认四角和四种效果共 208 次切换；它不等于录屏黑闪或硬件呈现掉帧验收。
 
 先构建，再运行统一回归：
 
 ```powershell
-pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.13-delivery
+pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.14-delivery
 pwsh -NoProfile -File native/tests/run-regression.ps1
 ```
 

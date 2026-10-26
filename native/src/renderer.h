@@ -66,7 +66,8 @@ public:
     ComPtr<ID2D1Device> d2d;
     ComPtr<IDCompositionDesktopDevice> composition;
     ComPtr<IDCompositionTarget> target;
-    ComPtr<IDCompositionVisual2> root,mat,well;
+    ComPtr<IDCompositionVisual2> carrierRoot,root,mat,well;
+    Bounds carrierBounds;bool carrierReady=false;
     ComPtr<IDCompositionRectangleClip> outerClip,innerClip;
     ComPtr<IDCompositionScaleTransform> matScale;
     ComPtr<IDCompositionSurface> matSurface;
@@ -116,6 +117,9 @@ public:
         { std::lock_guard lock(mutex); stopping=true; }
         wake.notify_all(); if(worker.joinable())worker.join();
     }
+    // 计数用于低负载回归，正常播放不输出高频日志。
+    uint64_t compositionCommits=0;
+    void commit(std::source_location source=std::source_location::current()){check(composition->Commit(),source);++compositionCommits;}
     void initialize() {
         ComPtr<ID3D11DeviceContext> context;
         D3D_FEATURE_LEVEL level;
@@ -130,7 +134,8 @@ public:
         check(factory->CreateDevice(dxgi.Get(),&d2d));
         check(DCompositionCreateDevice2(d2d.Get(),__uuidof(IDCompositionDesktopDevice),reinterpret_cast<void**>(composition.GetAddressOf())));
         check(composition->CreateTargetForHwnd(hwnd,TRUE,&target));
-        check(composition->CreateVisual(&root)); check(target->SetRoot(root.Get()));
+        check(composition->CreateVisual(&carrierRoot));check(target->SetRoot(carrierRoot.Get()));
+        check(composition->CreateVisual(&root));check(carrierRoot->AddVisual(root.Get(),TRUE,nullptr));
         check(composition->CreateRectangleClip(&outerClip)); check(root->SetClip(outerClip.Get()));
         outerClip->SetLeft(0.f);outerClip->SetTop(0.f);
         outerClip->SetTopLeftRadiusX(10); outerClip->SetTopLeftRadiusY(10);
@@ -145,7 +150,7 @@ public:
         check(composition->CreateRectangleClip(&innerClip));well->SetClip(innerClip.Get());
         innerClip->SetLeft(0.f);innerClip->SetTop(0.f);
         applyGeometry(bounds,false);
-        check(composition->Commit());
+        commit();
         updateRegion(bounds);
         worker=std::thread([this]{decodeWorker();});
         next=seconds()+playInterval;
@@ -174,7 +179,23 @@ public:
         // 由调用方使用明确的重载，保证全部属性共享同一个绝对起始时间。
         (void)object;(void)setter;(void)a;(void)b;(void)animate;
     }
+    void ensureCarrier(Bounds a,Bounds b,bool reset=false){
+        float left=std::floor(std::min(a.x,b.x))-1,top=std::floor(std::min(a.y,b.y))-1;
+        float right=std::ceil(std::max(a.x+a.w,b.x+b.w))+1,bottom=std::ceil(std::max(a.y+a.h,b.y+b.h))+1;
+        if(carrierReady&&!reset){
+            left=std::min(left,carrierBounds.x);top=std::min(top,carrierBounds.y);
+            right=std::max(right,carrierBounds.x+carrierBounds.w);bottom=std::max(bottom,carrierBounds.y+carrierBounds.h);
+        }
+        Bounds nextCarrier{left,top,std::max(1.f,right-left),std::max(1.f,bottom-top)};
+        if(carrierReady&&nextCarrier.x==carrierBounds.x&&nextCarrier.y==carrierBounds.y&&nextCarrier.w==carrierBounds.w&&nextCarrier.h==carrierBounds.h)return;
+        // 画布只容纳相框及换图包络，保留逻辑桌面坐标供固定角、拖动和多屏计算使用。
+        // 换图期间复用已扩大的包络，结束时不再缩窗，避免每帧或每次收尾调整原生窗口。
+        carrierBounds=nextCarrier;carrierReady=true;
+        check(carrierRoot->SetOffsetX(-carrierBounds.x));check(carrierRoot->SetOffsetY(-carrierBounds.y));
+        if(!SetWindowPos(hwnd,nullptr,area.left+int(left),area.top+int(top),int(nextCarrier.w),int(nextCarrier.h),SWP_NOZORDER|SWP_NOACTIVATE))throw E_FAIL;
+    }
     void applyGeometry(Bounds end,bool animate) {
+        ensureCarrier(animate?from:end,end,!hasPhoto||dragging||resizing);
         if(animate) {
             root->SetOffsetX(curve(from.x,end.x).Get());root->SetOffsetY(curve(from.y,end.y).Get());
             outerClip->SetRight(curve(from.w,end.w).Get());outerClip->SetBottom(curve(from.h,end.h).Get());
@@ -335,7 +356,7 @@ public:
         if(prefetching){
             prepared=makePicture(*pixels);preparedIndex=pixels->index;prepared.effect->SetOpacity(0.f);
             check(well->AddVisual(prepared.visual.Get(),TRUE,current.visual.Get()));prepared.attached=true;
-            check(composition->Commit());prepared.preparedAt=seconds();hasPrepared=true;prefetching=false;
+            commit();prepared.preparedAt=seconds();hasPrepared=true;prefetching=false;
             if(queued){queued=false;request(pendingIndex,false,false,pendingDirection,pendingTag);}return;
         }
         // 解码期间收到更新的选图请求时，不把旧结果上传并展示一遍。
@@ -354,7 +375,7 @@ public:
         // 新照片先以动画起点提交；滑动效果的起点在照片裁剪区外，其他效果先保持透明。
         setPictureStart(incoming,from,true);
         if(!incoming.attached){check(well->AddVisual(incoming.visual.Get(),TRUE,current.visual.Get()));incoming.attached=true;}
-        check(composition->Commit());
+        commit();
         BOOL clientAnimation=TRUE;SystemParametersInfo(SPI_GETCLIENTAREAANIMATION,0,&clientAnimation,0);
         animating=hasPhoto&&effect!=3&&clientAnimation&&!reduceMotion;
         // 让动画从合成器应用本次提交的第一帧开始，避免绝对时钟与显示帧错位。
@@ -369,14 +390,14 @@ public:
         }
         if(hasPhoto)pictureGeometry(current,from,to,animating,false);
         pictureGeometry(incoming,from,to,animating,true);
-        check(composition->Commit());
+        commit();
         if(!animating)finish();
     }
     void finish() {
         if(current.visual)well->RemoveVisual(current.visual.Get());
         current=std::move(incoming);incoming={};hasPhoto=true;bounds=to;animating=false;index=incomingIndex;
         applyGeometry(bounds,false);pictureGeometry(current,bounds,bounds,false,true);
-        check(composition->Commit());updateRegion(bounds);++transitions;
+        commit();updateRegion(bounds);++transitions;
         presentedTag=incomingTag;if(presented)presented(index);
         next=seconds()+(benchmark?testInterval:playInterval);
         if(queued&&pendingIndex!=index){queued=false;request(pendingIndex,false,false,pendingDirection,pendingTag);}
@@ -390,9 +411,9 @@ public:
             float progress=ease(float((seconds()-begin)/transitionDuration));
             bounds={from.x+(to.x-from.x)*progress,from.y+(to.y-from.y)*progress,from.w+(to.w-from.w)*progress,from.h+(to.h-from.h)*progress};
             well->RemoveVisual(incoming.visual.Get());incoming={};animating=false;
-            applyGeometry(bounds,false);pictureGeometry(current,bounds,bounds,false,false);check(composition->Commit());updateRegion(bounds);}
+            applyGeometry(bounds,false);pictureGeometry(current,bounds,bounds,false,false);commit();updateRegion(bounds);}
     }
-    void discardPrepared(){bool removed=hasPrepared&&prepared.attached&&prepared.visual;if(removed)well->RemoveVisual(prepared.visual.Get());prepared={};hasPrepared=false;if(removed&&composition)check(composition->Commit());}
+    void discardPrepared(){bool removed=hasPrepared&&prepared.attached&&prepared.visual;if(removed)well->RemoveVisual(prepared.visual.Get());prepared={};hasPrepared=false;if(removed&&composition)commit();}
     void sample() {
         PROCESS_MEMORY_COUNTERS_EX memory{};memory.cb=sizeof(memory);GetProcessMemoryInfo(GetCurrentProcess(),reinterpret_cast<PROCESS_MEMORY_COUNTERS*>(&memory),sizeof(memory));
         DWM_TIMING_INFO timing{};timing.cbSize=sizeof(timing);HRESULT hr=DwmGetCompositionTimingInfo(nullptr,&timing);
@@ -488,7 +509,7 @@ public:
         }
         if(resizing&&fixedRatio==0&&limitAutoSize){float factor=std::min({1.f,(std::max(2*Border+64,maxWidth)-2*Border)/(bounds.w-2*Border),(std::max(2*Border+64,maxHeight)-2*Border)/(bounds.h-2*Border)});float w=(bounds.w-2*Border)*factor+2*Border,h=(bounds.h-2*Border)*factor+2*Border;if(resizeAxes&ResizeLeft)bounds.x+=bounds.w-w;if(resizeAxes&ResizeTop)bounds.y+=bounds.h-h;bounds.w=w;bounds.h=h;}
         if(resizing&&fixedRatio!=0)preferredPhotoArea=std::max(1.f,(bounds.w-2*Border)*(bounds.h-2*Border));
-        applyGeometry(bounds,false);if(hasPhoto)pictureGeometry(current,bounds,bounds,false,true);check(composition->Commit());updateRegion(bounds);
+        applyGeometry(bounds,false);if(hasPhoto)pictureGeometry(current,bounds,bounds,false,true);commit();updateRegion(bounds);
     }
     void mouseUp(){if(!dragging&&!resizing)return;bool refresh=resizing&&hasPhoto&&(bounds.w-2*Border)*(bounds.h-2*Border)>float(current.w)*current.h*1.5f;dragging=false;resizing=false;resizeAxes=0;ReleaseCapture();next=seconds()+playInterval;if(refresh)request(index,false,true);else if(hasPhoto&&!paused&&!suspended&&paths.size()>1)request(following(),true);}
     void menu() {

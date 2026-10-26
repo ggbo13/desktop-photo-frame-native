@@ -46,6 +46,7 @@ public:
  std::vector<fs::path> history;size_t historyCursor=0;std::deque<size_t> bag;std::mt19937 random{std::random_device{}()};
  std::future<Store> scanFuture;double lastScan=0,lastDeviceCheck=0;unsigned lastFailure=0;double testSeconds=0,startTime=0,lastMetrics=0;fs::path metricsPath,dataPath;
  bool recovering=false,simulateDeviceLoss=false;
+ uint64_t timerTicks=0,paintEvents=0;UINT mainTimerInterval=8;
  HWND frameClickDownWindow=nullptr,lastFrameClickWindow=nullptr;
  POINT frameClickDownPoint{},lastFrameClickPoint{};Bounds frameClickDownBounds;
  ULONGLONG frameClickReadyAt=0,lastFrameClickAt=0;bool frameWasShown=false;
@@ -87,7 +88,7 @@ public:
   }
   PostQuitMessage(1);
  }
- void clearPicture(){frame.cancel();if(frame.current.visual)frame.well->RemoveVisual(frame.current.visual.Get());frame.current={};frame.hasPhoto=false;frame.index=0;frame.failedIndices.clear();check(frame.composition->Commit());SetWindowTextW(frame.hwnd,L"桌面相框 原生版");}
+ void clearPicture(){frame.cancel();if(frame.current.visual)frame.well->RemoveVisual(frame.current.visual.Get());frame.current={};frame.hasPhoto=false;frame.index=0;frame.failedIndices.clear();frame.commit();SetWindowTextW(frame.hwnd,L"桌面相框 原生版");}
  void resetOrder(bool skipCurrent=true){bag.clear();std::vector<size_t> all;for(size_t i=0;i<frame.paths.size();++i)if(!skipCurrent||!frame.hasPhoto||i!=frame.index)all.push_back(i);if(stringValue(store.active()["config"],"order")=="random")std::shuffle(all.begin(),all.end(),random);if(!skipCurrent&&all.size()>1&&all.front()==frame.index)std::swap(all[0],all[1]);for(auto i:all)bag.push_back(i);}
  size_t following(){
   if(frame.paths.empty())return 0;
@@ -111,7 +112,7 @@ public:
   frame.outerClip->SetTopLeftRadiusX(radius);frame.outerClip->SetTopLeftRadiusY(radius);frame.outerClip->SetTopRightRadiusX(radius);frame.outerClip->SetTopRightRadiusY(radius);
   frame.outerClip->SetBottomLeftRadiusX(radius);frame.outerClip->SetBottomLeftRadiusY(radius);frame.outerClip->SetBottomRightRadiusX(radius);frame.outerClip->SetBottomRightRadiusY(radius);
   if(frame.hasPhoto){frame.bounds=frame.fitted(frame.current.ratio);frame.pictureGeometry(frame.current,frame.bounds,frame.bounds,false,true);}
-  frame.applyGeometry(frame.bounds,false);frame.updateRegion(frame.bounds);check(frame.composition->Commit());frame.next=seconds()+frame.playInterval;
+  frame.applyGeometry(frame.bounds,false);frame.updateRegion(frame.bounds);frame.commit();frame.next=seconds()+frame.playInterval;
   if(settings)InvalidateRect(control(FramePreview),nullptr,FALSE);
   topmost();
  }
@@ -133,6 +134,18 @@ public:
    resetNavigation();resetOrder();save();updateTray();
   }
   if(settings)updatePhotos();
+ }
+ void refreshTimer(){
+  if(quitting||recovering||!frame.hwnd||!IsWindow(frame.hwnd))return;
+  // 合成器自行推进动画；静止时不必持续以高频轮询整个应用。
+  UINT interval=(frame.animating||viewer.job.valid()||(settings&&thumbnails.job.valid()))?16:((!frame.visible||frame.suspended)?1000:250);
+  if(frame.visible&&!frame.paused&&!frame.suspended&&!frame.loading&&!frame.animating&&!frame.paths.empty()){
+   double remaining=std::ceil((frame.next-seconds())*1000);
+   interval=std::min(interval,UINT(std::clamp(remaining,16.,double(interval))));
+  }
+  if(interval==mainTimerInterval)return;
+  if(!SetTimer(frame.hwnd,TimerId,interval,nullptr))throw E_FAIL;
+  mainTimerInterval=interval;
  }
  void tick(){
   pollEnvironment();
@@ -178,8 +191,8 @@ public:
    int horizontal=-1,vertical=-1;if(std::abs(frame.bounds.x-left)<=16){frame.bounds.x=left;horizontal=0;}else if(std::abs(frame.bounds.x-right)<=16){frame.bounds.x=right;horizontal=1;}
    if(std::abs(frame.bounds.y-top)<=16){frame.bounds.y=top;vertical=0;}else if(std::abs(frame.bounds.y-bottom)<=16){frame.bounds.y=bottom;vertical=1;}
    if(horizontal>=0&&vertical>=0){frame.anchor=vertical*2+horizontal;store.active()["config"]["anchor"]=anchors[frame.anchor];if(settings)SendMessage(control(AnchorCombo),CB_SETCURSEL,frame.anchor,0);}
-   frame.applyGeometry(frame.bounds,false);frame.updateRegion(frame.bounds);check(frame.composition->Commit());
-  }if(moved){frame.applyGeometry(frame.bounds,false);frame.updateRegion(frame.bounds);check(frame.composition->Commit());}save();
+   frame.applyGeometry(frame.bounds,false);frame.updateRegion(frame.bounds);frame.commit();
+  }if(moved){frame.applyGeometry(frame.bounds,false);frame.updateRegion(frame.bounds);frame.commit();}save();
  }
  void addSources(bool folder){
   ComPtr<IFileOpenDialog> dialog;check(CoCreateInstance(CLSID_FileOpenDialog,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&dialog)));DWORD flags=0;dialog->GetOptions(&flags);dialog->SetOptions(flags|FOS_FORCEFILESYSTEM|(folder?FOS_PICKFOLDERS:FOS_FILEMUSTEXIST)|FOS_ALLOWMULTISELECT);
@@ -327,8 +340,8 @@ public:
   WNDCLASSW wc{};wc.style=CS_DBLCLKS;wc.lpfnWndProc=appProcedure;wc.hInstance=module;wc.hIcon=LoadIconW(module,MAKEINTRESOURCEW(1));wc.lpszClassName=className.c_str();wc.hCursor=LoadCursor(nullptr,IDC_ARROW);RegisterClassW(&wc);wc.lpszClassName=L"NativePhotoFrameSettings";wc.hbrBackground=nullptr;RegisterClassW(&wc);
   auto b=objectValue(store.state,"bounds");RECT wanted{int(numberValue(b,"x",120)),int(numberValue(b,"y",120)),0,0};wanted.right=wanted.left+int(numberValue(b,"width",480));wanted.bottom=wanted.top+int(numberValue(b,"height",360));MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromRect(&wanted,MONITOR_DEFAULTTONEAREST),&monitor);
   frame.area={GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};frame.area.right=frame.area.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);frame.area.bottom=frame.area.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
-  int aw=frame.area.right-frame.area.left,ah=frame.area.bottom-frame.area.top;float mw=float(monitor.rcWork.right-monitor.rcWork.left),mh=float(monitor.rcWork.bottom-monitor.rcWork.top);frame.bounds.w=std::clamp(float(wanted.right-wanted.left),std::min(160.f,mw),mw);frame.bounds.h=std::clamp(float(wanted.bottom-wanted.top),std::min(160.f,mh),mh);frame.bounds.x=std::clamp(float(wanted.left),float(monitor.rcWork.left),monitor.rcWork.right-frame.bounds.w)-frame.area.left;frame.bounds.y=std::clamp(float(wanted.top),float(monitor.rcWork.top),monitor.rcWork.bottom-frame.bounds.h)-frame.area.top;
-  frame.hwnd=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_TOOLWINDOW|WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE,className.c_str(),L"桌面相框 原生版",WS_POPUP,frame.area.left,frame.area.top,aw,ah,nullptr,nullptr,module,nullptr);check(frame.hwnd?S_OK:HRESULT_FROM_WIN32(GetLastError()));SetLayeredWindowAttributes(frame.hwnd,0,255,LWA_ALPHA);
+  float mw=float(monitor.rcWork.right-monitor.rcWork.left),mh=float(monitor.rcWork.bottom-monitor.rcWork.top);frame.bounds.w=std::clamp(float(wanted.right-wanted.left),std::min(160.f,mw),mw);frame.bounds.h=std::clamp(float(wanted.bottom-wanted.top),std::min(160.f,mh),mh);frame.bounds.x=std::clamp(float(wanted.left),float(monitor.rcWork.left),monitor.rcWork.right-frame.bounds.w)-frame.area.left;frame.bounds.y=std::clamp(float(wanted.top),float(monitor.rcWork.top),monitor.rcWork.bottom-frame.bounds.h)-frame.area.top;
+  frame.hwnd=CreateWindowExW(WS_EX_NOREDIRECTIONBITMAP|WS_EX_TOOLWINDOW|WS_EX_LAYERED|WS_EX_TRANSPARENT|WS_EX_NOACTIVATE,className.c_str(),L"桌面相框 原生版",WS_POPUP,frame.area.left+int(frame.bounds.x),frame.area.top+int(frame.bounds.y),int(frame.bounds.w),int(frame.bounds.h),nullptr,nullptr,module,nullptr);check(frame.hwnd?S_OK:HRESULT_FROM_WIN32(GetLastError()));SetLayeredWindowAttributes(frame.hwnd,0,255,LWA_ALPHA);
   frame.inputHwnd=CreateWindowExW(WS_EX_LAYERED|WS_EX_TOOLWINDOW,className.c_str(),L"相框交互区域",WS_POPUP,frame.area.left+std::lround(frame.bounds.x),frame.area.top+std::lround(frame.bounds.y),std::max(1,int(std::lround(frame.bounds.w))+1),std::max(1,int(std::lround(frame.bounds.h))+1),nullptr,nullptr,module,nullptr);check(frame.inputHwnd?S_OK:HRESULT_FROM_WIN32(GetLastError()));SetLayeredWindowAttributes(frame.inputHwnd,0,1,LWA_ALPHA);
   Border=stringValue(store.active()["config"],"frame")=="borderless"?0:float(numberValue(store.active()["config"],"thickness",18));
   try{frame.initialize();}catch(HRESULT hr){
@@ -340,7 +353,7 @@ public:
   sessionRegistered=WTSRegisterSessionNotification(frame.hwnd,NOTIFY_FOR_THIS_SESSION)!=FALSE;powerNotification=RegisterPowerSettingNotification(frame.hwnd,&GUID_ACDC_POWER_SOURCE,DEVICE_NOTIFY_WINDOW_HANDLE);readPower();
   if(frame.softwareRenderer){try{std::ofstream log(dataPath/L"graphics-recovery.log",std::ios::app);log<<"software renderer started\n";}catch(...){}}
   font=CreateFontW(-16,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,CLEARTYPE_QUALITY,0,L"Microsoft YaHei UI");background=CreateSolidBrush(RGB(245,246,243));panel=CreateSolidBrush(RGB(255,255,255));for(int i=0;i<3;++i)icons[i]=makeIcon(i);taskbarCreated=RegisterWindowMessageW(L"TaskbarCreated");
-  activate(stringValue(store.state,"activePlaylistId"));visible(true);wheelHook=SetWindowsHookExW(WH_MOUSE_LL,mouseWheelProcedure,module,0);if(!wheelHook)OutputDebugStringW(L"桌面相框：鼠标滚轮钩子不可用。\n");SetTimer(frame.hwnd,TimerId,8,nullptr);startTime=seconds();frame.runStart=startTime;
+  activate(stringValue(store.state,"activePlaylistId"));visible(true);wheelHook=SetWindowsHookExW(WH_MOUSE_LL,mouseWheelProcedure,module,0);if(!wheelHook)OutputDebugStringW(L"桌面相框：鼠标滚轮钩子不可用。\n");startTime=seconds();frame.runStart=startTime;mainTimerInterval=0;refreshTimer();
   if(!metricsPath.empty()){frame.log.open(metricsPath);frame.log<<"seconds,working_set_bytes,private_commit_bytes,transitions,decode_errors,dwm_result,dwm_frame,dwm_dropped,dwm_late,visible,inside_hit,outside_pass,gpu_local_bytes,gpu_nonlocal_bytes,paused,photo_index,loading,animating\n";frame.events.open(metricsPath.wstring()+L".events.csv");frame.events<<"qpc_begin,qpc_duration,anchor,effect,from_x,from_y,from_w,from_h,to_x,to_y,to_w,to_h,surface_upload_ms,prepared_age_ms\n";}
   if(frame.paths.empty())showSettings();
  }
@@ -378,12 +391,12 @@ static LRESULT CALLBACK appProcedure(HWND h,UINT msg,WPARAM w,LPARAM l){
   if(msg==WM_APP+61&&app->testHooks&&app->newSettings){app->photoGrid.select(int(w),(l&1)!=0,(l&2)!=0);return 0;}
   if(msg==WM_APP+63&&app->testHooks&&app->newSettings){app->fontsV8(std::clamp(float(w)/100,1.f,2.f));app->settingsScrollY=0;app->layoutV8();return 0;}
   if(msg==WM_APP+65&&app->testHooks)return app->fullscreenWindow(reinterpret_cast<HWND>(l));
-  if(msg==WM_APP+62&&app->testHooks){auto& f=app->frame;switch(w){case 0:return f.index;case 1:return std::lround(f.bounds.w);case 2:return std::lround(f.bounds.h);case 3:return std::lround(f.bounds.x);case 4:return std::lround(f.bounds.y);case 5:return app->history.size();case 6:return f.slideDirection;case 7:return (f.visible?1:0)|(f.paused?2:0)|(f.suspended?4:0)|(f.reduceMotion?8:0)|(f.animating?16:0)|(f.loading?32:0);case 8:return app->photoGrid.selected.size();case 9:return app->thumbnails.bytes;case 10:return std::lround(f.preferredPhotoArea);case 11:return app->historyCursor;case 12:return f.transitions;case 13:return app->fullscreenForeground();}return 0;}
+  if(msg==WM_APP+62&&app->testHooks){auto& f=app->frame;switch(w){case 0:return f.index;case 1:return std::lround(f.bounds.w);case 2:return std::lround(f.bounds.h);case 3:return std::lround(f.bounds.x);case 4:return std::lround(f.bounds.y);case 5:return app->history.size();case 6:return f.slideDirection;case 7:return (f.visible?1:0)|(f.paused?2:0)|(f.suspended?4:0)|(f.reduceMotion?8:0)|(f.animating?16:0)|(f.loading?32:0);case 8:return app->photoGrid.selected.size();case 9:return app->thumbnails.bytes;case 10:return std::lround(f.preferredPhotoArea);case 11:return app->historyCursor;case 12:return f.transitions;case 13:return app->fullscreenForeground();case 14:return app->timerTicks;case 15:return app->frame.compositionCommits;case 16:return app->paintEvents;case 17:return app->mainTimerInterval;case 20:return 1;case 23:return app->frame.hasPhoto;}return 0;}
   if(msg==app->taskbarCreated&&msg){app->trayAdded=false;app->updateTray();return 0;}
   if(msg==RestoreMessage){app->visible(true);if(app->settings)SetForegroundWindow(app->settings);return 0;}
   if(msg==TrayMessage){if(l==WM_LBUTTONUP)app->visible(true);if(l==WM_RBUTTONUP)app->menu();return 0;}
   if(msg==WheelMessage&&h==app->frame.hwnd){app->wheel(int(INT_PTR(w)));return 0;}
-  if(msg==DecodedMessage){app->frame.receive();return 0;}if(msg==WM_TIMER&&h==app->frame.hwnd){if(app->simulateDeviceLoss&&seconds()-app->startTime>1){app->simulateDeviceLoss=false;throw DXGI_ERROR_DEVICE_REMOVED;}app->tick();return 0;}
+  if(msg==DecodedMessage){app->frame.receive();app->refreshTimer();return 0;}if(msg==WM_TIMER&&h==app->frame.hwnd){++app->timerTicks;if(app->simulateDeviceLoss&&seconds()-app->startTime>1){app->simulateDeviceLoss=false;throw DXGI_ERROR_DEVICE_REMOVED;}app->tick();app->refreshTimer();return 0;}
   if(msg==WM_COMMAND&&(h==app->frame.hwnd||h==app->frame.inputHwnd)){app->command(LOWORD(w));return 0;}
   if(msg==WM_COMMAND&&h==app->settings&&!app->refreshing){int id=LOWORD(w);bool appearanceChoice=id>=FrameCombo&&id<=OrderCombo&&HIWORD(w)==CBN_SELCHANGE;bool appearanceNumber=(id==ThicknessEdit||id==RadiusEdit||id==ShadowEdit)&&HIWORD(w)==EN_KILLFOCUS;if(appearanceChoice||appearanceNumber){app->options();return 0;}}
   if(msg==WM_COMMAND&&h==app->settings){int id=LOWORD(w);if((id==SearchEdit&&HIWORD(w)==EN_CHANGE)||(id==ExcludedCheck&&HIWORD(w)==BN_CLICKED)){if(!app->refreshing)app->updatePhotos();}else if(id==PlaylistBox&&HIWORD(w)==LBN_SELCHANGE&&!app->refreshing)app->switchByIndex(int(SendMessage(app->control(PlaylistBox),LB_GETCURSEL,0,0)));else if(id==PhotoBox&&HIWORD(w)==LBN_DBLCLK)app->command(ShowPhoto);else if(HIWORD(w)==BN_CLICKED&&id<100)app->command(id);return 0;}
@@ -399,10 +412,10 @@ static LRESULT CALLBACK appProcedure(HWND h,UINT msg,WPARAM w,LPARAM l){
   }}
   if(msg==WM_SIZE&&h==app->settings){app->settingsViewport();return 0;}
   if(msg==WM_MOUSEWHEEL&&h==app->settings){for(int i=0;i<3;++i)app->scrollSettings(SB_VERT,GET_WHEEL_DELTA_WPARAM(w)>0?SB_LINEUP:SB_LINEDOWN);return 0;}
-  if(msg==WM_DISPLAYCHANGE&&h==app->frame.hwnd){auto& frame=app->frame;frame.cancel();float x=frame.bounds.x+frame.area.left,y=frame.bounds.y+frame.area.top;frame.area={GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};frame.area.right=frame.area.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);frame.area.bottom=frame.area.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);frame.bounds.x=x-frame.area.left;frame.bounds.y=y-frame.area.top;frame.keepInWorkArea();SetWindowPos(frame.hwnd,nullptr,frame.area.left,frame.area.top,frame.area.right-frame.area.left,frame.area.bottom-frame.area.top,SWP_NOZORDER|SWP_NOACTIVATE);frame.applyGeometry(frame.bounds,false);if(frame.hasPhoto)frame.pictureGeometry(frame.current,frame.bounds,frame.bounds,false,true);frame.updateRegion(frame.bounds);check(frame.composition->Commit());app->save();return 0;}
+  if(msg==WM_DISPLAYCHANGE&&h==app->frame.hwnd){auto& frame=app->frame;frame.cancel();float x=frame.bounds.x+frame.area.left,y=frame.bounds.y+frame.area.top;frame.area={GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};frame.area.right=frame.area.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);frame.area.bottom=frame.area.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);frame.bounds.x=x-frame.area.left;frame.bounds.y=y-frame.area.top;frame.keepInWorkArea();frame.carrierReady=false;frame.applyGeometry(frame.bounds,false);if(frame.hasPhoto)frame.pictureGeometry(frame.current,frame.bounds,frame.bounds,false,true);frame.updateRegion(frame.bounds);frame.commit();app->save();return 0;}
   if((msg==WM_HSCROLL||msg==WM_VSCROLL)&&h==app->settings){app->scrollSettings(msg==WM_HSCROLL?SB_HORZ:SB_VERT,LOWORD(w));return 0;}
   if(msg==WM_GETMINMAXINFO&&h==app->settings){auto info=reinterpret_cast<MINMAXINFO*>(l);info->ptMinTrackSize={std::min(640L,app->frame.area.right-app->frame.area.left),std::min(480L,app->frame.area.bottom-app->frame.area.top)};return 0;}
-  if(msg==WM_PAINT){PAINTSTRUCT paint;HDC dc=BeginPaint(h,&paint);if(h==app->frame.inputHwnd)FillRect(dc,&paint.rcPaint,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));else if(h==app->settings){FillRect(dc,&paint.rcPaint,app->background);SetViewportOrgEx(dc,-app->settingsScrollX,-app->settingsScrollY,nullptr);RECT left{12,12,222,644},center{224,12,642,644},right{644,12,940,844};FillRect(dc,&left,app->panel);FillRect(dc,&center,app->panel);FillRect(dc,&right,app->panel);}EndPaint(h,&paint);return 0;}
+  if(msg==WM_PAINT){if(h==app->frame.hwnd||h==app->frame.inputHwnd)++app->paintEvents;PAINTSTRUCT paint;HDC dc=BeginPaint(h,&paint);if(h==app->frame.inputHwnd)FillRect(dc,&paint.rcPaint,static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));else if(h==app->settings){FillRect(dc,&paint.rcPaint,app->background);SetViewportOrgEx(dc,-app->settingsScrollX,-app->settingsScrollY,nullptr);RECT left{12,12,222,644},center{224,12,642,644},right{644,12,940,844};FillRect(dc,&left,app->panel);FillRect(dc,&center,app->panel);FillRect(dc,&right,app->panel);}EndPaint(h,&paint);return 0;}
   if((msg==WM_CTLCOLORSTATIC||msg==WM_CTLCOLORLISTBOX)&&h==app->settings){auto dc=reinterpret_cast<HDC>(w);SetTextColor(dc,RGB(32,51,54));SetBkColor(dc,RGB(255,255,255));return reinterpret_cast<LRESULT>(app->panel);}
   if(msg==WM_ERASEBKGND)return 1;
   if(h==app->frame.inputHwnd||h==app->frame.hwnd){
@@ -445,7 +458,7 @@ int WINAPI wWinMain(HINSTANCE module,HINSTANCE,PWSTR,int){
   application.init(module,data,legacy);MSG message;while(GetMessageW(&message,nullptr,0,0)>0){
    if(application.viewer.hwnd&&(message.hwnd==application.viewer.hwnd||IsChild(application.viewer.hwnd,message.hwnd))){if(message.message==WM_KEYDOWN&&(message.wParam==VK_ESCAPE||message.wParam=='0'||message.wParam=='1')){SendMessage(application.viewer.hwnd,WM_KEYDOWN,message.wParam,message.lParam);continue;}if(IsDialogMessageW(application.viewer.hwnd,&message))continue;}
    if(application.settings&&application.newSettings&&message.message==WM_KEYDOWN&&message.wParam==VK_RETURN){int id=GetDlgCtrlID(message.hwnd);if(id==ThicknessEdit||id==RadiusEdit||id==ShadowEdit||id==IntervalEdit||id==MaxWidthEdit||id==MaxHeightEdit||id==SnapMarginEdit){application.applyV8(true);continue;}}
-   if(application.settings&&IsDialogMessageW(application.settings,&message))continue;TranslateMessage(&message);DispatchMessageW(&message);
+   if(application.settings&&IsDialogMessageW(application.settings,&message))continue;TranslateMessage(&message);DispatchMessageW(&message);application.refreshTimer();
   }code=int(message.wParam);app=nullptr;
  }catch(const std::logic_error& e){if(std::string(e.what())!="already-running"){MessageBoxW(nullptr,wide(e.what()).c_str(),L"桌面相框",MB_ICONERROR);code=1;}}
  catch(const std::exception& e){MessageBoxW(nullptr,wide(e.what()).c_str(),L"桌面相框启动失败",MB_ICONERROR);code=1;}
