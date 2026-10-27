@@ -1,5 +1,6 @@
-param([string]$Executable='native/out/2.0.0-preview.18-delivery/DesktopPhotoFrameNative.exe',[switch]$RecordVideo,[switch]$ProfileLayout,[switch]$ResizeLifecycle)
+param([string]$Executable='native/out/2.0.0-preview.18-delivery/DesktopPhotoFrameNative.exe',[switch]$RecordVideo,[switch]$ProfileLayout,[switch]$ResizeLifecycle,[switch]$AllowCapture)
 $ErrorActionPreference='Stop'
+if(!$AllowCapture){throw '此测试会持续采集并回读窗口画面，可能影响桌面流畅度；默认不运行。只有明确需要时才传入 -AllowCapture。'}
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 . (Join-Path $PSScriptRoot 'frame-tray-history.ps1')
 Add-Type @'

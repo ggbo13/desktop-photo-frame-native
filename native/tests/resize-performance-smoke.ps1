@@ -7,9 +7,11 @@ param(
  [ValidateRange(0,200)][int]$PhotoCount=24,
  [ValidateSet(30,60)][int]$RateHz=30,
  [switch]$NoResizeLifecycle,
- [switch]$ProfileLayout
+ [switch]$ProfileLayout,
+ [switch]$AllowCapture
 )
 $ErrorActionPreference='Stop'
+if(!$AllowCapture){throw '此测试会持续缩放和采集窗口，可能影响桌面流畅度；默认不运行。只有明确需要时才传入 -AllowCapture。'}
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 . (Join-Path $PSScriptRoot 'frame-tray-history.ps1')
 Add-Type @'
