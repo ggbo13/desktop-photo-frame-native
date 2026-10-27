@@ -31,5 +31,7 @@ static void uiIcon(HDC dc,UiGlyph kind,RECT r,COLORREF color,float dpi){
  else if(kind==UiGlyph::List){for(int i=0;i<3;++i){line(3,5+i*7,5,5+i*7);line(9,5+i*7,21,5+i*7);}}
  SelectObject(dc,previous);SelectObject(dc,oldBrush);DeleteObject(pen);
 }
-// 继续使用系统滚动条的命中与拖动，仅覆盖颜色，避免夜间模式留下白色沟槽。
-static void uiScroll(HWND h,const UiPalette& palette){SCROLLBARINFO info{sizeof(info)};if(!GetScrollBarInfo(h,OBJID_VSCROLL,&info)||(info.rgstate[0]&STATE_SYSTEM_INVISIBLE))return;RECT window{};GetWindowRect(h,&window);auto r=info.rcScrollBar;OffsetRect(&r,-window.left,-window.top);if(r.right<=r.left||r.bottom<=r.top)return;HDC dc=GetWindowDC(h);if(!dc)return;uiFill(dc,r,palette.panel);RECT thumb{r.left+4,r.top+info.xyThumbTop,r.right-4,r.top+info.xyThumbBottom};if(thumb.bottom>thumb.top)uiRound(dc,thumb,uiMix(palette.muted,palette.panel,.35f),uiMix(palette.muted,palette.panel,.35f),3);ReleaseDC(h,dc);}
+// 保留旧的覆盖式画法供后续对照；系统与应用交替绘制时会产生闪烁。
+[[maybe_unused]] static void uiScrollLegacy(HWND h,const UiPalette& palette){SCROLLBARINFO info{sizeof(info)};if(!GetScrollBarInfo(h,OBJID_VSCROLL,&info)||(info.rgstate[0]&STATE_SYSTEM_INVISIBLE))return;RECT window{};GetWindowRect(h,&window);auto r=info.rcScrollBar;OffsetRect(&r,-window.left,-window.top);if(r.right<=r.left||r.bottom<=r.top)return;HDC dc=GetWindowDC(h);if(!dc)return;uiFill(dc,r,palette.panel);RECT thumb{r.left+4,r.top+info.xyThumbTop,r.right-4,r.top+info.xyThumbBottom};if(thumb.bottom>thumb.top)uiRound(dc,thumb,uiMix(palette.muted,palette.panel,.35f),uiMix(palette.muted,palette.panel,.35f),3);ReleaseDC(h,dc);}
+// 交由系统原生滚动条负责绘制和交互，避免鼠标悬停时反复覆盖。
+static void uiScroll(HWND,const UiPalette&){}

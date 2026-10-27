@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.18-delivery/DesktopPhotoFrameNative.exe',[int]$ListRowHeight=64)
+param([string]$Executable='native/out/2.0.0-preview.19-delivery/DesktopPhotoFrameNative.exe',[int]$ListRowHeight=64)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 Add-Type @'

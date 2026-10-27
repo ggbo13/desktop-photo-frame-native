@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.18-delivery/DesktopPhotoFrameNative.exe')
+param([string]$Executable='native/out/2.0.0-preview.19-delivery/DesktopPhotoFrameNative.exe')
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $PSScriptRoot)
 $artifactRoot=Join-Path $root 'native/artifacts'
