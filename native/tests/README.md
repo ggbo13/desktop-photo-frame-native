@@ -1,6 +1,8 @@
 # 原生相框测试与托盘隔离
 
-当前构建：`2.0.0-preview.16`。
+当前构建：`2.0.0-preview.17`。
+
+preview.17 默认回归为 12 组，加入系统合成画面的缩放检查、大图画布交互和双击回归。`resize-paint-smoke.ps1` 按需编译采集工具，只采集被测窗口，检查照片网格、静态文字、相框预览及大图按钮的像素；固定标题、导航和照片区不允许反复隐藏，底部参数随高度收起单独计数。可加 `-RecordVideo` 保存录像。它不把窗口尺寸调用次数当成呈现帧率，也不代表检查了整个界面的所有像素。`viewer-canvas-smoke.ps1` 检查独立画布的滚轮、拖动、适应、原始尺寸、快捷键和暂停恢复。大图缩放状态只通过 `--test-hooks` 查询，不写入用户配置。
 
 preview.16 默认回归为 9 组，加入 `settings-resize-smoke.ps1`。异步提交真实窗口缩放，确认目标尺寸已生效、设置和相框均响应、正常退出且没有测试托盘记录。默认检查已复现卡死的临界宽度；`-FullSweep` 检查四页、三种布局比例、19 个宽度与 6 个高度，共 1368 次尺寸变化。超出工作区的输入收至工作区内，并记录请求值与实际值。比例测试不代表修改了真实系统 DPI。
 
@@ -16,7 +18,7 @@ preview.14 默认回归为 6 组，其中 `composition-idle-smoke.ps1` 无需截
 先构建，再运行统一回归：
 
 ```powershell
-pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.16-delivery
+pwsh -NoProfile -File native/build-app.ps1 -OutputDirectory native/out/2.0.0-preview.17-delivery
 pwsh -NoProfile -File native/tests/run-regression.ps1
 ```
 

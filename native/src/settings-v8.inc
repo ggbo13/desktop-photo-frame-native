@@ -22,7 +22,7 @@
   RECT wanted{LONG(numberValue(saved,"x",work.left+40)),LONG(numberValue(saved,"y",work.top+40)),0,0};wanted.right=wanted.left+w;wanted.bottom=wanted.top+h;MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromRect(&wanted,MONITOR_DEFAULTTONEAREST),&monitor);work=monitor.rcWork;
   w=std::clamp(w,std::min(640,int(work.right-work.left)),int(work.right-work.left));h=std::clamp(h,std::min(480,int(work.bottom-work.top)),int(work.bottom-work.top));
   int x=std::clamp(int(wanted.left),int(work.left),int(work.right)-w),y=std::clamp(int(wanted.top),int(work.top),int(work.bottom)-h);
-  settings=CreateWindowExW(WS_EX_CONTROLPARENT,L"NativePhotoFrameSettings",L"桌面相框 " PHOTO_FRAME_VERSION_W L" · 照片与设置",WS_OVERLAPPEDWINDOW|WS_VSCROLL|WS_CLIPCHILDREN,x,y,w,h,nullptr,nullptr,module,nullptr);
+  settings=CreateWindowExW(WS_EX_CONTROLPARENT|WS_EX_COMPOSITED,L"NativePhotoFrameSettings",L"桌面相框 " PHOTO_FRAME_VERSION_W L" · 照片与设置",WS_OVERLAPPEDWINDOW|WS_VSCROLL|WS_CLIPCHILDREN,x,y,w,h,nullptr,nullptr,module,nullptr);
   uiLabel(600,L"播放列表");ui(L"LISTBOX",L"",PlaylistBox,LBS_NOTIFY|LBS_OWNERDRAWFIXED|LBS_HASSTRINGS|WS_VSCROLL);uiCombo(PlaylistCompact,{});ui(L"EDIT",L"",NameEdit,ES_AUTOHSCROLL);
   ui(L"BUTTON",L"新建",NewList);ui(L"BUTTON",L"改名",RenameList);ui(L"BUTTON",L"删除列表…",DeleteList);ui(L"BUTTON",L"管理列表",ManageLists);ui(L"BUTTON",L"管理来源",ManageSources);uiLabel(620,L"相框样式");
   const wchar_t* tabs[]={L"照片",L"外观",L"播放",L"应用"};for(int i=0;i<4;++i)ui(L"BUTTON",tabs[i],PagePhotos+i,BS_OWNERDRAW);

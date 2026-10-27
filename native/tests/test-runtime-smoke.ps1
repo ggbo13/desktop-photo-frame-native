@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.16-delivery/DesktopPhotoFrameNative.exe')
+param([string]$Executable='native/out/2.0.0-preview.17-delivery/DesktopPhotoFrameNative.exe')
 $ErrorActionPreference='Stop'
 $helper=Join-Path $PSScriptRoot 'frame-test-runtime.ps1'
 if(!(Test-Path -LiteralPath $helper)){throw '测试启动器尚未提供无托盘保护'}

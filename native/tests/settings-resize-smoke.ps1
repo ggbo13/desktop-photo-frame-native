@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.16-delivery/DesktopPhotoFrameNative.exe',[switch]$FullSweep,[ValidateRange(0,1000)][int]$PhotoCount=24,[ValidateSet('light','dark')][string]$Theme='dark')
+param([string]$Executable='native/out/2.0.0-preview.17-delivery/DesktopPhotoFrameNative.exe',[switch]$FullSweep,[ValidateRange(0,1000)][int]$PhotoCount=24,[ValidateSet('light','dark')][string]$Theme='dark')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 . (Join-Path $PSScriptRoot 'frame-tray-history.ps1')
@@ -13,6 +13,7 @@ public static class SettingsResizeProbe {
  [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern int GetWindowText(IntPtr h,StringBuilder value,int n);
  [DllImport("user32.dll")]public static extern bool GetClientRect(IntPtr h,out Rect r);
  [DllImport("user32.dll")]public static extern bool GetWindowRect(IntPtr h,out Rect r);
+ [DllImport("user32.dll")]public static extern IntPtr GetDlgItem(IntPtr h,int id);
  [DllImport("user32.dll",CharSet=CharSet.Unicode)]public static extern bool SystemParametersInfo(uint action,uint parameter,out Rect r,uint flags);
  [DllImport("user32.dll")]public static extern bool SetWindowPos(IntPtr h,IntPtr z,int x,int y,int width,int height,uint flags);
  [DllImport("user32.dll")]public static extern bool PostMessage(IntPtr h,uint m,IntPtr w,IntPtr l);
@@ -43,7 +44,9 @@ try{
    $watch=[Diagnostics.Stopwatch]::StartNew();$actual=[SettingsResizeProbe+Rect]::new()
    do{Start-Sleep -Milliseconds 12;Message $settings 0|Out-Null;[SettingsResizeProbe]::GetWindowRect($settings,[ref]$actual)|Out-Null;$applied=($actual.right-$actual.left-eq$size.w-and$actual.bottom-$actual.top-eq$size.h)}while(!$applied-and$watch.ElapsedMilliseconds-lt2000)
    $sample.actualWidth=$actual.right-$actual.left;$sample.actualHeight=$actual.bottom-$actual.top
-   if(!$applied){throw "目标窗口尺寸未生效：$($size.w)×$($size.h)"};Message $main 32830 20|Out-Null;$sample.responseMs=$watch.Elapsed.TotalMilliseconds;$sample.responsive=$true
+   if(!$applied){throw "目标窗口尺寸未生效：$($size.w)×$($size.h)"};Message $main 32830 20|Out-Null
+   if($page-eq400){$title=[SettingsResizeProbe+Rect]::new();$source=[SettingsResizeProbe+Rect]::new();[SettingsResizeProbe]::GetWindowRect([SettingsResizeProbe]::GetDlgItem($settings,700),[ref]$title)|Out-Null;[SettingsResizeProbe]::GetWindowRect([SettingsResizeProbe]::GetDlgItem($settings,461),[ref]$source)|Out-Null;if($title.top-eq$source.top){$sample.headingNoOverlap=$title.right-le$source.left;if(!$sample.headingNoOverlap){throw '照片页标题遮挡来源按钮'}}}
+   $sample.responseMs=$watch.Elapsed.TotalMilliseconds;$sample.responsive=$true
   }
  }}
 }catch{$failure=$_.Exception.Message}finally{

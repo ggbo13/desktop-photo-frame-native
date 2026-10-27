@@ -2,15 +2,16 @@
  void layoutV8(){
    if(!settings||!newSettings||settingsControls.empty()||layingOutSettings)return;layingOutSettings=true;
    HWND focused=GetFocus();bool wasRefreshing=refreshing;refreshing=true;
+   bool redraw=IsWindowVisible(settings);std::set<HWND> dirtyAll;
    // 滚动条首次占位或滚动位置修正最多重排三次，期间保持防重入，禁止递归收敛。
    for(int pass=0;pass<3;++pass){
   RECT client{};GetClientRect(settings,&client);float width=client.right/settingsDpi,height=client.bottom/settingsDpi;
   bool side=width>=820;float sideWidth=side?198:0,x=sideWidth+24,cw=std::max(280.f,width-x-24),header=side?24:116;
   sidebar15={0,0,px(sideWidth),px(height-32)};inspector15={};sidebarVisible15=side;inspectorVisible15=false;
-   for(auto h:settingsControls)ShowWindow(h,SW_HIDE);
+   struct Move{HWND child;RECT bounds;};std::vector<Move> moves;std::map<HWND,RECT> planned;std::set<HWND> wanted,dirty;auto previousRegion=CreateRectRgn(0,0,0,0);
   float scrollTop=header+78,scrollBottom=height-46,bodyBottom=scrollTop;std::vector<int> fixed;
-  auto place=[&](int id,float a,float b,float w,float h,bool scrolling=false){HWND child=control(id);if(!child)return;if(scrolling)b-=settingsScrollY/settingsDpi;SetWindowPos(child,nullptr,px(a),px(b),std::max(1,px(w)),std::max(1,px(h)),SWP_NOZORDER|SWP_NOACTIVATE);
-   if(scrolling){int top=std::max(0,px(scrollTop-b)),bottom=std::min(px(h),px(scrollBottom-b));if(bottom<=top)return;auto clip=CreateRectRgn(0,top,px(w),bottom);if(!SetWindowRgn(child,clip,FALSE))DeleteObject(clip);}else{SetWindowRgn(child,nullptr,FALSE);fixed.push_back(id);}ShowWindow(child,SW_SHOWNA);};
+  auto place=[&](int id,float a,float b,float w,float h,bool scrolling=false){HWND child=control(id);if(!child)return;if(scrolling)b-=settingsScrollY/settingsDpi;planned[child]={px(a),px(b),px(a)+std::max(1,px(w)),px(b)+std::max(1,px(h))};
+   int prior=GetWindowRgn(child,previousRegion);if(scrolling){int top=std::max(0,px(scrollTop-b)),bottom=std::min(px(h),px(scrollBottom-b));if(bottom<=top)return;auto clip=CreateRectRgn(0,top,px(w),bottom);if(prior==ERROR||!EqualRgn(clip,previousRegion)){if(!SetWindowRgn(child,clip,FALSE))DeleteObject(clip);dirty.insert(child);}else DeleteObject(clip);}else{if(prior!=ERROR){SetWindowRgn(child,nullptr,FALSE);dirty.insert(child);}fixed.push_back(id);}wanted.insert(child);};
   if(side){
    place(705,22,24,158,30);for(int i=0;i<4;++i)place(PagePhotos+i,14,74+i*46,170,42);
    place(600,22,282,154,24);float bottom=height-(listManagerExpanded?324:186);place(PlaylistBox,14,316,170,std::max(60.f,bottom-316));
@@ -30,7 +31,7 @@
   if(settingsPage==0){
    bool preview=side&&cw>=720;float iw=std::clamp(cw*.29f,264.f,300.f),library=preview?cw-iw-28:cw;float y=header+78;
    // 窄窗口的顶部下拉框已经显示列表名，省去重复标题以保留照片高度。
-   if(!side){ShowWindow(control(700),SW_HIDE);ShowWindow(control(701),SW_HIDE);y=header-8;}
+   if(!side){wanted.erase(control(700));wanted.erase(control(701));y=header-8;}
    if(side&&cw>=650){place(700,x,header,cw-424,32);place(ManageSources,x+cw-416,header,112,38);place(AddFolder,x+cw-296,header,142,38);place(AddFiles,x+cw-146,header,146,38);}
    else{float bw=(cw-16)/3;place(AddFiles,x,y,bw,36);place(AddFolder,x+bw+8,y,bw,36);place(ManageSources,x+2*(bw+8),y,bw,36);y+=side?48:44;}
    SetWindowTextW(control(ManageSources),sourcesExpanded?L"收起来源":L"管理来源");
@@ -42,7 +43,7 @@
   }else if(settingsPage==1){
    bool split=side&&cw>=640;float ax=x,aw=cw;
    if(split){aw=std::clamp(cw*.38f,294.f,340.f);ax=x+cw-aw;float pw=cw-aw-32;place(602,x,header+94,pw,24);place(FramePreview,x,header+132,pw,std::min(330.f,height-header-235));place(702,x,header+148+std::min(330.f,height-header-235),pw,30);inspector15={px(ax-18),px(header+76),px(width),px(height-33)};inspectorVisible15=true;scrollTop=header+96;}
-   else if(height<620){float previewHeight=std::clamp(height-header-248,42.f,112.f);ShowWindow(control(701),SW_HIDE);place(602,x,header+48,140,24);place(FramePreview,x+150,header+44,cw-150,previewHeight);place(702,x,header+82,140,40);scrollTop=header+62+previewHeight;}
+   else if(height<620){float previewHeight=std::clamp(height-header-248,42.f,112.f);wanted.erase(control(701));place(602,x,header+48,140,24);place(FramePreview,x+150,header+44,cw-150,previewHeight);place(702,x,header+82,140,40);scrollTop=header+62+previewHeight;}
    else{place(602,x,header+78,cw,24);place(FramePreview,x,header+108,cw,132);place(702,x,header+246,cw,24);scrollTop=header+290;}
    bodyBottom=parameters(ax,aw,scrollTop);
   }else{
@@ -53,8 +54,16 @@
    // 始终保留纵向滚动条的宽度；内容无需滚动时禁用，避免预览断点随滚动条显隐振荡。
    SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS|SIF_DISABLENOSCROLL};info.nMax=px(std::max(0.f,bodyBottom-scrollTop))-1;info.nPage=px(std::max(1.f,scrollBottom-scrollTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1),corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=corrected;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_HORZ,FALSE);
    // 参数区采用控件裁剪，不遮挡左侧照片与固定预览。
-  for(int id:fixed)if(IsWindowVisible(control(id)))SetWindowPos(control(id),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+   // 批量应用变化的几何；固定控件保留原像素，避免每次缩放都强制重绘整页。
+   for(auto& [child,next]:planned){RECT current{};GetWindowRect(child,&current);MapWindowPoints(nullptr,settings,reinterpret_cast<POINT*>(&current),2);if(!EqualRect(&next,&current)){moves.push_back({child,next});dirty.insert(child);}}
+   HDWP batch=BeginDeferWindowPos(int(moves.size()));if(batch)for(auto& move:moves){batch=DeferWindowPos(batch,move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);if(!batch)break;}bool applied=batch&&EndDeferWindowPos(batch);if(!applied)for(auto& move:moves)SetWindowPos(move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);DeleteObject(previousRegion);
+   // 只在跨页或越过布局断点时改变显隐，缩放期间保留控件内容与焦点。
+   for(auto h:settingsControls){bool shown=(GetWindowLongPtr(h,GWL_STYLE)&WS_VISIBLE)!=0;if(shown!=wanted.contains(h))ShowWindow(h,wanted.contains(h)?SW_SHOWNA:SW_HIDE);}
+  for(int id:fixed)if(wanted.contains(control(id)))SetWindowPos(control(id),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOREDRAW);
+   dirtyAll.insert(dirty.begin(),dirty.end());
    photoGrid.viewport();InvalidateRect(settings,nullptr,FALSE);RECT after{};GetClientRect(settings,&after);if(!again&&EqualRect(&after,&client))break;
    }
+   // 布局完成即提交整个控件树，避免连续尺寸消息让绘制一直等到队列空闲。
+   if(redraw){InvalidateRect(settings,nullptr,FALSE);for(auto h:dirtyAll)InvalidateRect(h,nullptr,FALSE);RedrawWindow(settings,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_FRAME|RDW_UPDATENOW);}
    if(focused&&IsChild(settings,focused)&&IsWindowVisible(focused)&&GetFocus()!=focused)SetFocus(focused);refreshing=wasRefreshing;layingOutSettings=false;
  }

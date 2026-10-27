@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.16-delivery/DesktopPhotoFrameNative.exe',[switch]$SkipPointerInjection)
+param([string]$Executable='native/out/2.0.0-preview.17-delivery/DesktopPhotoFrameNative.exe',[switch]$SkipPointerInjection)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 Add-Type @'

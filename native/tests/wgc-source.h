@@ -38,12 +38,12 @@ public:
         LARGE_INTEGER due{};due.QuadPart=-10000;
         if(waitTimer&&SetWaitableTimer(waitTimer,&due,0,nullptr,nullptr,FALSE))WaitForSingleObject(waitTimer,50);else Sleep(1);
     }
-    HRESULT start(IDXGIDevice* device){
+    HRESULT start(IDXGIDevice* device,HWND window=nullptr){
         using namespace ABI::Windows::Graphics;
         Microsoft::WRL::ComPtr<IGraphicsCaptureItemInterop> interop;
         HRESULT hr=factory(L"Windows.Graphics.Capture.GraphicsCaptureItem",interop.GetAddressOf());if(FAILED(hr))return hr;
         Microsoft::WRL::ComPtr<Capture::IGraphicsCaptureItem> item;
-        hr=interop->CreateForMonitor(MonitorFromPoint(POINT{0,0},MONITOR_DEFAULTTOPRIMARY),IID_PPV_ARGS(&item));if(FAILED(hr))return hr;
+        hr=window?interop->CreateForWindow(window,IID_PPV_ARGS(&item)):interop->CreateForMonitor(MonitorFromPoint(POINT{0,0},MONITOR_DEFAULTTOPRIMARY),IID_PPV_ARGS(&item));if(FAILED(hr))return hr;
         SizeInt32 size{};hr=item->get_Size(&size);if(FAILED(hr))return hr;
         Microsoft::WRL::ComPtr<IInspectable> wrapped;
         hr=CreateDirect3D11DeviceFromDXGIDevice(device,&wrapped);if(FAILED(hr))return hr;
@@ -65,10 +65,11 @@ public:
         }
         return session->StartCapture();
     }
-    HRESULT next(ID3D11Texture2D** texture,LONGLONG* timestamp){
+    HRESULT next(ID3D11Texture2D** texture,LONGLONG* timestamp,ABI::Windows::Graphics::SizeInt32* content=nullptr){
         // 下一次取帧前才归还上帧，保证 GPU 回读期间缓冲不会被复用。
         close(frame.Get());frame.Reset();
         HRESULT hr=pool->TryGetNextFrame(&frame);if(FAILED(hr)||!frame)return FAILED(hr)?hr:S_FALSE;
+        if(content){hr=frame->get_ContentSize(content);if(FAILED(hr))return hr;}
         ABI::Windows::Foundation::TimeSpan time{};
         hr=frame->get_SystemRelativeTime(&time);if(FAILED(hr))return hr;
         Microsoft::WRL::ComPtr<ABI::Windows::Graphics::DirectX::Direct3D11::IDirect3DSurface> surface;

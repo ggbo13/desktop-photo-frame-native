@@ -2,7 +2,9 @@
 
 Windows 桌面照片相框，使用 C++、Win32、Direct2D、DirectComposition 和 WIC；不加载 Electron 或浏览器内核。
 
-**[下载 2.0.0-preview.16 安装包](https://github.com/ggbo13/desktop-photo-frame-native/releases/tag/v2.0.0-preview.16)** · Windows x64 · 中文界面
+**[下载 2.0.0-preview.17 安装包](https://github.com/ggbo13/desktop-photo-frame-native/releases/tag/v2.0.0-preview.17)** · Windows x64 · 中文界面
+
+preview.17 修复设置与大图窗口连续缩放时的闪烁。设置页不再反复隐藏整页控件；大图使用独立照片画布，避免覆盖按钮。验证记录见 [本版核验](docs/VALIDATION-preview17.md)。
 
 preview.16 修复设置窗口在临界宽度缩放时卡死的问题：保留纵向滚动条占位，限制布局重排次数。问题可导致窗口停止重绘并留下鼠标残影。验证记录见 [本版核验](docs/VALIDATION-preview16.md)。
 
