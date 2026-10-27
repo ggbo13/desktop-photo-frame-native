@@ -5,6 +5,7 @@
 #include "materials.h"
 #include "ui-theme.h"
 #include "photo-grid.h"
+#include "scroll-math.h"
 #include <commctrl.h>
 #include <uxtheme.h>
 #include <future>
@@ -69,7 +70,7 @@ public:
   for(int bar:{SB_HORZ,SB_VERT}){SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE};info.nMin=0;info.nMax=bar==SB_HORZ?959:879;info.nPage=bar==SB_HORZ?client.right:client.bottom;SetScrollInfo(settings,bar,&info,TRUE);scrollSettings(bar,SB_ENDSCROLL);}
  }
  ~Application(){quitting=true;unregisterEnvironment();if(wheelHook)UnhookWindowsHookEx(wheelHook);viewer.closed={};viewer.close();if(settings&&IsWindow(settings))DestroyWindow(settings);if(frame.hwnd&&IsWindow(frame.hwnd))DestroyWindow(frame.hwnd);frame.hwnd=frame.inputHwnd=nullptr;if(scanFuture.valid())scanFuture.wait();if(trayAdded)Shell_NotifyIconW(NIM_DELETE,&tray);for(auto icon:icons)if(icon)DestroyIcon(icon);if(font)DeleteObject(font);if(heading)DeleteObject(heading);if(background)DeleteObject(background);if(panel)DeleteObject(panel);for(auto brush:{canvasBrush15,panelBrush15,sideBrush15,fieldBrush15})if(brush)DeleteObject(brush);releaseFonts15();if(singleton)CloseHandle(singleton);app=nullptr;}
- HWND control(int id){return GetDlgItem(settings,id);}
+ HWND control(int id){if(auto h=GetDlgItem(settings,id))return h;if(newSettings)for(auto h:settingsControls)if(GetDlgCtrlID(h)==id)return h;return nullptr;}
  void save(){store.state["bounds"]={{"x",frame.bounds.x+frame.area.left},{"y",frame.bounds.y+frame.area.top},{"width",frame.bounds.w},{"height",frame.bounds.h}};store.state["global"]["preferredPhotoArea"]=frame.preferredPhotoArea;store.save();}
  void stopAfterFailure(HRESULT hr){
   // 先封锁重入和定时器；MessageBox 的嵌套消息循环曾让相同错误每 8 毫秒再弹一次。

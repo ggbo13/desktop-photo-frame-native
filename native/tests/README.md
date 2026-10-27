@@ -50,3 +50,5 @@ pwsh -NoProfile -File native/tests/test-runtime-smoke.ps1
 ```
 
 原始性能样机没有系统托盘，相关样机测试保留原有启动方式。旧代码、旧安装包和测试产物继续保留。
+
+preview.20：滚动位置与端点检查默认加入回归。主题检查默认低负载（无截图）；布局检查默认不截图，只有显式传入 `-CaptureVisual` 才生成画面。`scroll-math-smoke.ps1` 只运行少量计算，不创建窗口或托盘。

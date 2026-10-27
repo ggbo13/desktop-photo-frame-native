@@ -3,21 +3,20 @@
    if(!settings||!newSettings||settingsControls.empty()||layingOutSettings)return;layingOutSettings=true;
    ScopedSettingsTiming layoutTiming(testHooks,settingsLayoutTime);
    HWND focused=GetFocus();bool wasRefreshing=refreshing;refreshing=true;
-   bool redraw=IsWindowVisible(settings);std::set<HWND> dirtyAll;
+   bool redraw=IsWindowVisible(settings);std::set<HWND> dirtyAll;bool viewportUsed=false;
    // 滚动条首次占位或滚动位置修正最多重排三次，期间保持防重入，禁止递归收敛。
    for(int pass=0;pass<3;++pass){
    ScopedSettingsTiming planTiming(testHooks,settingsPlanTime);
   RECT client{};GetClientRect(settings,&client);float width=client.right/settingsDpi,height=client.bottom/settingsDpi;
-  bool side=width>=820;float sideWidth=side?198:0,x=sideWidth+24,cw=std::max(280.f,width-x-24),header=side?24:116;
+  bool side=width>=820&&(!listManagerExpanded||height>=638);float sideWidth=side?198:0,x=sideWidth+24,cw=std::max(280.f,width-x-24),header=side?24:116;
   sidebar15={0,0,px(sideWidth),px(height-32)};inspector15={};sidebarVisible15=side;inspectorVisible15=false;
    struct Move{HWND child;RECT bounds;};std::vector<Move> moves;std::map<HWND,RECT> planned;std::set<HWND> wanted,dirty;auto previousRegion=CreateRectRgn(0,0,0,0);
   float scrollTop=header+78,scrollBottom=height-46,bodyBottom=scrollTop;std::vector<int> fixed;
-  auto place=[&](int id,float a,float b,float w,float h,bool scrolling=false){HWND child=control(id);if(!child)return;if(scrolling)b-=settingsScrollY/settingsDpi;planned[child]={px(a),px(b),px(a)+std::max(1,px(w)),px(b)+std::max(1,px(h))};
-   int prior=GetWindowRgn(child,previousRegion);if(scrolling){int top=std::max(0,px(scrollTop-b)),bottom=std::min(px(h),px(scrollBottom-b));if(bottom<=top)return;auto clip=CreateRectRgn(0,top,px(w),bottom);if(prior==ERROR||!EqualRgn(clip,previousRegion)){if(!SetWindowRgn(child,clip,FALSE))DeleteObject(clip);dirty.insert(child);}else DeleteObject(clip);}else{if(prior!=ERROR){SetWindowRgn(child,nullptr,FALSE);dirty.insert(child);}fixed.push_back(id);}wanted.insert(child);};
+  auto place=[&](int id,float a,float b,float w,float h,bool scrolling=false){HWND child=control(id);if(!child)return;if(scrolling){if(GetParent(child)!=scrollContent){SetParent(child,scrollContent);SetWindowRgn(child,nullptr,FALSE);dirty.insert(child);}int left=px(a)-scrollViewportX,top=px(b)-scrollViewportY;planned[child]={left,top,left+std::max(1,px(w)),top+std::max(1,px(h))};wanted.insert(child);return;}if(GetParent(child)!=settings){SetParent(child,settings);dirty.insert(child);}planned[child]={px(a),px(b),px(a)+std::max(1,px(w)),px(b)+std::max(1,px(h))};int prior=GetWindowRgn(child,previousRegion);if(prior!=ERROR){SetWindowRgn(child,nullptr,FALSE);dirty.insert(child);}fixed.push_back(id);wanted.insert(child);};
   if(side){
    place(705,22,24,158,30);for(int i=0;i<4;++i)place(PagePhotos+i,14,74+i*46,170,42);
-   place(600,22,282,154,24);float bottom=height-(listManagerExpanded?324:186);place(PlaylistBox,14,316,170,std::max(60.f,bottom-316));
-   if(listManagerExpanded){place(NameEdit,14,height-308,170,36);place(RenameList,14,height-262,170,36);place(DeleteList,14,height-216,170,36);}
+   place(600,22,282,154,24);float bottom=height-(listManagerExpanded?274:186);place(PlaylistBox,14,316,170,std::max(60.f,bottom-316));
+   if(listManagerExpanded){place(NameEdit,14,height-262,170,36);place(RenameList,14,height-216,82,36);place(DeleteList,102,height-216,82,36);}
    place(NewList,14,height-164,170,38);place(ManageLists,14,height-118,170,34);place(ThemeToggle,14,height-73,170,36);
   }else{
    place(PlaylistCompact,20,14,width-190,260);place(ManageLists,width-160,14,96,36);place(ThemeToggle,width-58,14,40,36);
@@ -25,7 +24,7 @@
    if(listManagerExpanded){place(NameEdit,20,112,width-40,34);float bw=(width-56)/3;place(NewList,20,154,bw,34);place(RenameList,28+bw,154,bw,34);place(DeleteList,36+2*bw,154,bw,34);header=204;scrollTop=header+78;}
   }
   place(700,x,header,cw,32);place(701,x,header+39,cw,24);place(200,x,height-29,cw,24);
-  auto parameters=[&](float ax,float aw,float start){float y=start;auto p=[&](int id,float a,float b,float w,float h){place(id,a,b,w,h,true);};
+  auto parameters=[&](float ax,float aw,float start){ensureScrollViewport(ax,aw,start,scrollBottom);viewportUsed=true;float y=start;auto p=[&](int id,float a,float b,float w,float h){place(id,a,b,w,h,true);};
    p(620,ax,y,aw,23);y+=31;float card=(aw-16)/5;for(int i=0;i<5;++i)p(FrameCard+i,ax+i*(card+4),y,card,70);y+=84;
    for(int i=0;i<3;++i){int labels[]={605,606,607},sliders[]={ThicknessSlider,RadiusSlider,ShadowSlider},edits[]={ThicknessEdit,RadiusEdit,ShadowEdit};p(labels[i],ax,y,aw-70,26);p(edits[i],ax+aw-64,y-3,64,30);y+=30;p(sliders[i],ax,y,aw,28);y+=44;}
    p(603,ax,y,aw,23);y+=30;p(RatioCombo,ax,y,aw,250);y+=48;p(604,ax,y,aw,23);y+=30;float corner=(aw-18)/4;for(int i=0;i<4;++i)p(AnchorButton+i,ax+i*(corner+6),y,corner,36);y+=52;
@@ -50,17 +49,17 @@
    bodyBottom=parameters(ax,aw,scrollTop);
   }else{
    float aw=std::min(680.f,cw),y=header+94;auto p=[&](int id,float a,float b,float w,float h){place(id,a,b,w,h,true);};scrollTop=y;
-   if(settingsPage==2){for(auto [label,id,h]:std::initializer_list<std::tuple<int,int,int>>{{610,EffectCombo,250},{611,OrderCombo,250},{612,IntervalEdit,38}}){p(label,x,y,aw,24);y+=32;p(id,x,y,std::min(380.f,aw),h);y+=60;}p(613,x,y,aw,50);y+=66;p(Pause,x,y,190,40);bodyBottom=y+58;}
+   ensureScrollViewport(x,aw,scrollTop,scrollBottom);viewportUsed=true;if(settingsPage==2){for(auto [label,id,h]:std::initializer_list<std::tuple<int,int,int>>{{610,EffectCombo,250},{611,OrderCombo,250},{612,IntervalEdit,38}}){p(label,x,y,aw,24);y+=32;p(id,x,y,std::min(380.f,aw),h);y+=60;}p(613,x,y,aw,50);y+=66;p(Pause,x,y,190,40);bodyBottom=y+58;}
    else{p(619,x,y,aw,24);y+=32;p(ThemeCombo,x,y,std::min(320.f,aw),250);y+=64;p(614,x,y,aw,28);y+=40;for(int id:{TopCheck,LockCheck,StartupCheck,SnapCheck}){p(id,x,y,aw,34);y+=44;}p(615,x,y,174,34);p(SnapMarginEdit,x+184,y,86,34);y+=58;p(616,x,y,aw,28);y+=38;for(int id:{FullscreenCheck,BatteryCheck}){p(id,x,y,aw,36);y+=46;}p(617,x,y,aw,58);y+=72;p(618,x,y,aw,25);bodyBottom=y+46;}
   }
    // 始终保留纵向滚动条的宽度；内容无需滚动时禁用，避免预览断点随滚动条显隐振荡。
-   SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS|SIF_DISABLENOSCROLL};info.nMax=px(std::max(0.f,bodyBottom-scrollTop))-1;info.nPage=px(std::max(1.f,scrollBottom-scrollTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1),corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=corrected;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_HORZ,FALSE);
+   SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS|SIF_DISABLENOSCROLL};info.nMax=px(std::max(0.f,bodyBottom-scrollTop))-1;info.nPage=px(std::max(1.f,scrollBottom-scrollTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1),corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=corrected;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_HORZ,FALSE);if(viewportUsed)sizeScrollContent(bodyBottom-scrollTop);else if(scrollViewport)ShowWindow(scrollViewport,SW_HIDE);
    // 参数区采用控件裁剪，不遮挡左侧照片与固定预览。
    // 批量应用变化的几何；固定控件保留原像素，避免每次缩放都强制重绘整页。
    planTiming.finish();
    {ScopedSettingsTiming positionTiming(testHooks,settingsPositionTime);
-   for(auto& [child,next]:planned){RECT current{};GetWindowRect(child,&current);MapWindowPoints(nullptr,settings,reinterpret_cast<POINT*>(&current),2);if(!EqualRect(&next,&current)){moves.push_back({child,next});dirty.insert(child);}}
-   HDWP batch=BeginDeferWindowPos(int(moves.size()));if(batch)for(auto& move:moves){batch=DeferWindowPos(batch,move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);if(!batch)break;}bool applied=batch&&EndDeferWindowPos(batch);if(!applied)for(auto& move:moves)SetWindowPos(move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);DeleteObject(previousRegion);
+   for(auto& [child,next]:planned){RECT current{};GetWindowRect(child,&current);MapWindowPoints(nullptr,GetParent(child),reinterpret_cast<POINT*>(&current),2);if(!EqualRect(&next,&current)){moves.push_back({child,next});dirty.insert(child);}}
+   for(auto parent:{settings,scrollContent}){if(!parent)continue;int count=0;for(auto& move:moves)if(GetParent(move.child)==parent)++count;if(!count)continue;HDWP batch=BeginDeferWindowPos(count);if(batch)for(auto& move:moves){if(GetParent(move.child)!=parent)continue;batch=DeferWindowPos(batch,move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);if(!batch)break;}bool applied=batch&&EndDeferWindowPos(batch);if(!applied)for(auto& move:moves)if(GetParent(move.child)==parent)SetWindowPos(move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);}DeleteObject(previousRegion);
    }
    // 只在跨页或越过布局断点时改变显隐，缩放期间保留控件内容与焦点。
    {ScopedSettingsTiming visibilityTiming(testHooks,settingsVisibilityTime);

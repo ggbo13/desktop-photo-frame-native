@@ -1,1 +1,1 @@
-78aa928bdd340a95e473919f7bf468a0ed18f0fa6478a85f0e9dcc6fcc0d5275  DesktopPhotoFrameNative-2.0.0-preview.19-Setup.exe
+f32a3fc609e2464d2e02548a157b2e9738071c1e0292bcf0c543308901422cfd  DesktopPhotoFrameNative-2.0.0-preview.20-Setup.exe

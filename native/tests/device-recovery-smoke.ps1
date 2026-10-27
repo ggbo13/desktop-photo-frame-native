@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.19-delivery/DesktopPhotoFrameNative.exe')
+param([string]$Executable='native/out/2.0.0-preview.20-delivery/DesktopPhotoFrameNative.exe')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 $binary=[IO.Path]::GetFullPath((Join-Path (Get-Location) $Executable))

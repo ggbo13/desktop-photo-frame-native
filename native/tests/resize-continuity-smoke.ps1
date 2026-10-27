@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.19-delivery/DesktopPhotoFrameNative.exe',[int[]]$Deltas=@(-50,-51),[string]$Ratio='1:1',[ValidateSet('top-left','top-right','bottom-left','bottom-right','left','right','top','bottom')][string]$Handle='bottom-right',[switch]$ReplayQueuedMove)
+param([string]$Executable='native/out/2.0.0-preview.20-delivery/DesktopPhotoFrameNative.exe',[int[]]$Deltas=@(-50,-51),[string]$Ratio='1:1',[ValidateSet('top-left','top-right','bottom-left','bottom-right','left','right','top','bottom')][string]$Handle='bottom-right',[switch]$ReplayQueuedMove)
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 Add-Type @'
