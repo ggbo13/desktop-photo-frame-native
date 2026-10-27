@@ -1,4 +1,4 @@
-param([switch]$IncludeInstaller,[string]$Executable='native/out/2.0.0-preview.17-delivery/DesktopPhotoFrameNative.exe')
+param([switch]$IncludeInstaller,[string]$Executable='native/out/2.0.0-preview.18-delivery/DesktopPhotoFrameNative.exe')
 $ErrorActionPreference='Stop'
 $root=Split-Path (Split-Path $PSScriptRoot)
 $workspacePrefix=[IO.Path]::GetFullPath($root).TrimEnd('\')+'\'

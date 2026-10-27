@@ -1,6 +1,15 @@
  // 旧三栏设置实现保留在 showLegacySettings，新界面独立接入。
  bool newSettings=false;int settingsPage=0;float settingsDpi=1;HFONT settingsFont=nullptr,utilityFont=nullptr;
- PhotoGrid photoGrid;std::vector<HWND> settingsControls;std::vector<BYTE> cardPixels[5];std::string cardColor;
+ PhotoGrid photoGrid;std::vector<HWND> settingsControls;std::vector<int> settingsFixedOrder;std::vector<BYTE> cardPixels[5];std::string cardColor;
+ // 计数和微秒采用固定容量、饱和累加；正式运行不读取时钟，也不写诊断日志。
+ struct SettingsTiming{uint64_t count=0,totalUs=0,maxUs=0;};
+ struct ScopedSettingsTiming{
+  bool active;SettingsTiming& timing;LARGE_INTEGER start{};
+  ScopedSettingsTiming(bool enabled,SettingsTiming& value):active(enabled),timing(value){if(active)QueryPerformanceCounter(&start);}
+  void finish(){if(!active)return;active=false;LARGE_INTEGER end{};QueryPerformanceCounter(&end);constexpr uint64_t limit=uint64_t(std::numeric_limits<int64_t>::max());long double us=static_cast<long double>(std::max<LONGLONG>(0,end.QuadPart-start.QuadPart))*1000000.L/Frequency.QuadPart;uint64_t elapsed=us>=limit?limit:uint64_t(us);if(timing.count<limit)++timing.count;timing.totalUs=elapsed>limit-timing.totalUs?limit:timing.totalUs+elapsed;timing.maxUs=std::max(timing.maxUs,elapsed);}
+  ~ScopedSettingsTiming(){finish();}
+ };
+ SettingsTiming settingsLayoutTime,settingsRedrawTime,settingsPreviewTime,settingsPlanTime,settingsPositionTime,settingsVisibilityTime;
  std::vector<fs::path> pendingDragPaths;fs::path pendingDragTarget;double lastSliderPreview=0;
  int px(float v)const{return std::lround(v*settingsDpi);}
  #include "settings-v15.inc"
@@ -17,7 +26,7 @@
  }
  void showSettings(){
   if(settings){ShowWindow(settings,SW_RESTORE);SetForegroundWindow(settings);return;}
-  newSettings=true;settingsPage=0;settingsScrollY=0;listManagerExpanded=false;sourcesExpanded=false;settingsControls.clear();photoGrid.selected.clear();photoGrid.focus=-1;photoGrid.scroll=0;
+  newSettings=true;settingsPage=0;settingsScrollY=0;listManagerExpanded=false;sourcesExpanded=false;settingsControls.clear();settingsFixedOrder.clear();photoGrid.selected.clear();photoGrid.focus=-1;photoGrid.scroll=0;
   auto saved=objectValue(store.state,"settingsBounds");RECT work=frame.workArea(frame.bounds);float initialDpi=GetDpiForWindow(frame.hwnd)/96.f;int w=int(numberValue(saved,"width",1280*initialDpi)),h=int(numberValue(saved,"height",800*initialDpi));
   RECT wanted{LONG(numberValue(saved,"x",work.left+40)),LONG(numberValue(saved,"y",work.top+40)),0,0};wanted.right=wanted.left+w;wanted.bottom=wanted.top+h;MONITORINFO monitor{sizeof(monitor)};GetMonitorInfoW(MonitorFromRect(&wanted,MONITOR_DEFAULTTONEAREST),&monitor);work=monitor.rcWork;
   w=std::clamp(w,std::min(640,int(work.right-work.left)),int(work.right-work.left));h=std::clamp(h,std::min(480,int(work.bottom-work.top)),int(work.bottom-work.top));

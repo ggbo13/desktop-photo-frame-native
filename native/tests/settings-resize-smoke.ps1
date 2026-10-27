@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.17-delivery/DesktopPhotoFrameNative.exe',[switch]$FullSweep,[ValidateRange(0,1000)][int]$PhotoCount=24,[ValidateSet('light','dark')][string]$Theme='dark')
+param([string]$Executable='native/out/2.0.0-preview.18-delivery/DesktopPhotoFrameNative.exe',[switch]$FullSweep,[ValidateRange(0,1000)][int]$PhotoCount=24,[ValidateSet('light','dark')][string]$Theme='dark')
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'frame-test-runtime.ps1')
 . (Join-Path $PSScriptRoot 'frame-tray-history.ps1')

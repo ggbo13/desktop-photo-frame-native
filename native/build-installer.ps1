@@ -1,4 +1,4 @@
-param([string]$ApplicationDirectory='native/out/2.0.0-preview.17-delivery',[string]$OutputDirectory='native/dist/2.0.0-preview.17',[string]$MakensisExecutable='')
+param([string]$ApplicationDirectory='native/out/2.0.0-preview.18-delivery',[string]$OutputDirectory='native/dist/2.0.0-preview.18',[string]$MakensisExecutable='')
 $ErrorActionPreference='Stop'
 $root=Split-Path $PSScriptRoot
 $source=[IO.Path]::GetFullPath((Join-Path $root $ApplicationDirectory))
@@ -17,7 +17,7 @@ Copy-Item -LiteralPath (Join-Path $thirdParty 'dav1d-1.5.4/COPYING') -Destinatio
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'vendor/json-LICENSE.MIT') -Destination (Join-Path $licenses 'json-MIT.txt')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'toolchain/llvm-mingw-20260908-ucrt-x86_64/LICENSE.TXT') -Destination (Join-Path $licenses 'llvm-mingw-LICENSE.txt')
 $compiler=if($MakensisExecutable){(Get-Command $MakensisExecutable -ErrorAction Stop).Source}else{Join-Path $PSScriptRoot 'toolchain/nsis-3.0.4.1-portable/Bin/makensis.exe'}
-$package=Join-Path $output '桌面相框 原生版 2.0.0-preview.17 Setup.exe'
+$package=Join-Path $output '桌面相框 原生版 2.0.0-preview.18 Setup.exe'
 Push-Location (Join-Path $PSScriptRoot 'package')
 try { & $compiler /V2 /INPUTCHARSET UTF8 "/DAPP_DIR=$stage" "/DPACKAGE_OUTPUT=$package" installer.nsi; if($LASTEXITCODE -ne 0){throw '安装包构建失败'} } finally {Pop-Location}
 Get-Item -LiteralPath $package | Select-Object FullName,Length

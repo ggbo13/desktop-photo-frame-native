@@ -1,1 +1,1 @@
-d7150af120fd5be0c1334106d18d1b3eddabbd3070aeb3a6086db49e2edf3b53  DesktopPhotoFrameNative-2.0.0-preview.17-Setup.exe
+9d36fec0579236d846619179420743ea99e18ef2017b3979b3b39358141bfe1c  DesktopPhotoFrameNative-2.0.0-preview.18-Setup.exe

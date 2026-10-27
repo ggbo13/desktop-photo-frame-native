@@ -1,10 +1,12 @@
  // 方案一：左侧导航、照片主区、固定预览；只有参数区使用父窗口滚动条。
  void layoutV8(){
    if(!settings||!newSettings||settingsControls.empty()||layingOutSettings)return;layingOutSettings=true;
+   ScopedSettingsTiming layoutTiming(testHooks,settingsLayoutTime);
    HWND focused=GetFocus();bool wasRefreshing=refreshing;refreshing=true;
    bool redraw=IsWindowVisible(settings);std::set<HWND> dirtyAll;
    // 滚动条首次占位或滚动位置修正最多重排三次，期间保持防重入，禁止递归收敛。
    for(int pass=0;pass<3;++pass){
+   ScopedSettingsTiming planTiming(testHooks,settingsPlanTime);
   RECT client{};GetClientRect(settings,&client);float width=client.right/settingsDpi,height=client.bottom/settingsDpi;
   bool side=width>=820;float sideWidth=side?198:0,x=sideWidth+24,cw=std::max(280.f,width-x-24),header=side?24:116;
   sidebar15={0,0,px(sideWidth),px(height-32)};inspector15={};sidebarVisible15=side;inspectorVisible15=false;
@@ -55,15 +57,21 @@
    SCROLLINFO info{sizeof(info),SIF_RANGE|SIF_PAGE|SIF_POS|SIF_DISABLENOSCROLL};info.nMax=px(std::max(0.f,bodyBottom-scrollTop))-1;info.nPage=px(std::max(1.f,scrollBottom-scrollTop));int maximum=std::max(0,info.nMax-int(info.nPage)+1),corrected=std::clamp(settingsScrollY,0,maximum);bool again=corrected!=settingsScrollY;settingsScrollY=corrected;info.nPos=corrected;SetScrollInfo(settings,SB_VERT,&info,TRUE);ShowScrollBar(settings,SB_HORZ,FALSE);
    // 参数区采用控件裁剪，不遮挡左侧照片与固定预览。
    // 批量应用变化的几何；固定控件保留原像素，避免每次缩放都强制重绘整页。
+   planTiming.finish();
+   {ScopedSettingsTiming positionTiming(testHooks,settingsPositionTime);
    for(auto& [child,next]:planned){RECT current{};GetWindowRect(child,&current);MapWindowPoints(nullptr,settings,reinterpret_cast<POINT*>(&current),2);if(!EqualRect(&next,&current)){moves.push_back({child,next});dirty.insert(child);}}
    HDWP batch=BeginDeferWindowPos(int(moves.size()));if(batch)for(auto& move:moves){batch=DeferWindowPos(batch,move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);if(!batch)break;}bool applied=batch&&EndDeferWindowPos(batch);if(!applied)for(auto& move:moves)SetWindowPos(move.child,nullptr,move.bounds.left,move.bounds.top,move.bounds.right-move.bounds.left,move.bounds.bottom-move.bounds.top,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOREDRAW);DeleteObject(previousRegion);
+   }
    // 只在跨页或越过布局断点时改变显隐，缩放期间保留控件内容与焦点。
+   {ScopedSettingsTiming visibilityTiming(testHooks,settingsVisibilityTime);
    for(auto h:settingsControls){bool shown=(GetWindowLongPtr(h,GWL_STYLE)&WS_VISIBLE)!=0;if(shown!=wanted.contains(h))ShowWindow(h,wanted.contains(h)?SW_SHOWNA:SW_HIDE);}
-  for(int id:fixed)if(wanted.contains(control(id)))SetWindowPos(control(id),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOREDRAW);
+   // 固定控件集合没变时保持原有层级，避免每次尺寸消息都重新排列全部控件。
+   std::vector<int> visibleFixed;for(int id:fixed)if(wanted.contains(control(id)))visibleFixed.push_back(id);if(visibleFixed!=settingsFixedOrder){bool ordered=true;for(int id:visibleFixed)if(!SetWindowPos(control(id),HWND_TOP,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOREDRAW))ordered=false;if(ordered)settingsFixedOrder=std::move(visibleFixed);}
+   }
    dirtyAll.insert(dirty.begin(),dirty.end());
    photoGrid.viewport();InvalidateRect(settings,nullptr,FALSE);RECT after{};GetClientRect(settings,&after);if(!again&&EqualRect(&after,&client))break;
    }
    // 布局完成即提交整个控件树，避免连续尺寸消息让绘制一直等到队列空闲。
-   if(redraw){InvalidateRect(settings,nullptr,FALSE);for(auto h:dirtyAll)InvalidateRect(h,nullptr,FALSE);RedrawWindow(settings,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_FRAME|RDW_UPDATENOW);}
+   if(redraw){InvalidateRect(settings,nullptr,FALSE);for(auto h:dirtyAll)InvalidateRect(h,nullptr,FALSE);{ScopedSettingsTiming redrawTiming(testHooks,settingsRedrawTime);RedrawWindow(settings,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_FRAME|RDW_UPDATENOW);}}
    if(focused&&IsChild(settings,focused)&&IsWindowVisible(focused)&&GetFocus()!=focused)SetFocus(focused);refreshing=wasRefreshing;layingOutSettings=false;
  }

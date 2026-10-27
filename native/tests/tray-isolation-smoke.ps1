@@ -1,4 +1,4 @@
-param([string]$Executable='native/out/2.0.0-preview.17-delivery/DesktopPhotoFrameNative.exe',[ValidateSet('no-tray','timer','hooks','stress','normal')][string[]]$Modes=@('no-tray','timer','hooks','stress'),[switch]$ExpectTray,[switch]$IsolatedWindowsProfile)
+param([string]$Executable='native/out/2.0.0-preview.18-delivery/DesktopPhotoFrameNative.exe',[ValidateSet('no-tray','timer','hooks','stress','normal')][string[]]$Modes=@('no-tray','timer','hooks','stress'),[switch]$ExpectTray,[switch]$IsolatedWindowsProfile)
 $ErrorActionPreference='Stop'
 Add-Type @'
 using System;using System.Text;using System.Runtime.InteropServices;
